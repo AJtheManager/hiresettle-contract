@@ -1,4 +1,4 @@
-use soroban_sdk::{contractimpl, token, Address, BytesN, Env, Map, String, Symbol, Vec};
+use soroban_sdk::{contractimpl, Address, BytesN, Env, Map, String, Symbol, Vec};
 use crate::*;
 
 #[contractimpl]
@@ -56,12 +56,26 @@ impl HireSettleContract {
 
     /// Set the platform fee in basis points and the treasury that receives it.
     /// `bps` is capped at 500 (5%).
+    /// When a config cosigner is set and this setter is marked sensitive
+    /// (issue #473), stores a pending change instead of applying immediately.
     pub fn set_platform_fee(env: Env, admin: Address, bps: u32, treasury: Address) {
         Self::assert_not_paused(&env);
         Self::assert_admin(&env, &admin);
 
         if bps > MAX_PLATFORM_FEE_BPS {
             panic!("FeeTooHigh");
+        }
+
+        if Self::defer_if_sensitive(
+            &env,
+            FN_SET_PLATFORM_FEE,
+            bps,
+            0,
+            false,
+            Some(treasury.clone()),
+            None,
+        ) {
+            return;
         }
 
         env.storage().persistent().set(
@@ -192,6 +206,17 @@ impl HireSettleContract {
         Self::assert_admin(&env, &admin);
         if bps > MAX_PLATFORM_FEE_BPS {
             panic!("discount too high");
+        }
+        if Self::defer_if_sensitive(
+            &env,
+            FN_SET_REFERRAL_DISCOUNT_BPS,
+            bps,
+            0,
+            false,
+            None,
+            None,
+        ) {
+            return;
         }
         env.storage()
             .persistent()
@@ -334,6 +359,18 @@ impl HireSettleContract {
     /// Panics with "unauthorized" if caller is not admin.
     pub fn set_min_amount(env: Env, admin: Address, amount: i128) {
         Self::assert_admin(&env, &admin);
+
+        if Self::defer_if_sensitive(
+            &env,
+            FN_SET_MIN_AMOUNT,
+            0,
+            amount,
+            false,
+            None,
+            None,
+        ) {
+            return;
+        }
 
         env.storage()
             .persistent()
@@ -690,8 +727,21 @@ impl HireSettleContract {
     }
 
     /// Enable or disable the token allowlist. Admin only.
+    /// When a config cosigner is set and this setter is marked sensitive
+    /// (issue #473), stores a pending change instead of applying immediately.
     pub fn set_token_allowlist_enabled(env: Env, admin: Address, enabled: bool) {
         Self::assert_admin(&env, &admin);
+        if Self::defer_if_sensitive(
+            &env,
+            FN_SET_TOKEN_ALLOWLIST_ENABLED,
+            0,
+            0,
+            enabled,
+            None,
+            None,
+        ) {
+            return;
+        }
         env.storage()
             .persistent()
             .set(&DataKey::AllowlistEnabled, &enabled);
@@ -810,14 +860,8 @@ impl HireSettleContract {
         }
 
         let refund = engagement.total_amount - engagement.released_amount;
-        if refund > 0 {
-            let token_client = token::Client::new(&env, &engagement.token);
-            token_client.transfer(
-                &env.current_contract_address(),
-                &engagement.company,
-                &refund,
-            );
-        }
+        // Issue #472: pool-funded engagements refund to the pool by default.
+        Self::refund_company_escrow(&env, &engagement, &engagement_id, refund);
 
         let old_engagement_status = engagement.status.clone();
         engagement.status = EngagementStatus::Expired;
@@ -998,6 +1042,17 @@ impl HireSettleContract {
         Self::assert_admin(&env, &admin);
         if bps > MAX_ARBITER_FEE_BPS {
             panic!("ArbiterFeeTooHigh");
+        }
+        if Self::defer_if_sensitive(
+            &env,
+            FN_SET_ARBITER_FEE,
+            bps,
+            0,
+            false,
+            None,
+            None,
+        ) {
+            return;
         }
         env.storage()
             .instance()

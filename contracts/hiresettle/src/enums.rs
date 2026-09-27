@@ -127,6 +127,10 @@ pub enum ConfigKey {
     /// TTL in ledgers for amendment / split-amendment proposals
     /// (default 17_280 ≈ 1 day).
     AmendmentTTL,
+    /// Portion of each platform fee credited as company rebate (issue #475).
+    FeeRebateBps,
+    /// Emergency pause vote window in ledgers (issue #474).
+    EmergencyVoteWindow,
 }
 /// Contract storage key space. Instance keys reset between transactions;
 /// persistent keys survive across ledgers.
@@ -314,34 +318,23 @@ pub enum DataKey2 {
     SplitAmendmentLog(String),
     /// Arbiters who have self-recused from a specific dispute (issue #477).
     RecusedArbiters(String, u32),
+    /// Per-company, per-token pooled escrow balance (issue #472).
+    CompanyBalance(Address, Address),
+    /// Whether an engagement was funded from the company pool (issue #472).
+    PoolFunded(String),
+    /// Optional second cosigner for sensitive admin setters (issue #473).
+    ConfigCosigner,
+    /// Admin-selected sensitive setter function ids (issue #473).
+    SensitiveFunctions,
+    /// Pending cosigner-gated config change by change_id (issue #473).
+    PendingConfigChange(u64),
+    /// Monotonic counter for pending config change ids (issue #473).
+    NextConfigChangeId,
+    /// Emergency M-of-N signer set and threshold (issue #474).
+    EmergencySigners,
+    /// Emergency pause vote tally; empty string = global pause (issue #474).
+    EmergencyVotes(String),
+    /// Per-company, per-token redeemable fee rebate balance (issue #475).
+    CompanyRebate(Address, Address),
 }
 
-/// Overflow storage key space for variants that would push [`DataKey`] past
-/// soroban_sdk's 50-case union limit (`ScSpecUdtUnionV0`).
-#[contracttype]
-pub enum DataKey2 {
-    /// Per-dispute split-vote tally for (engagement_id, milestone_index) (issue #462).
-    ArbiterSplitVotes(String, u32),
-    /// Optional vote delegate for (engagement_id, arbiter) (issue #463).
-    ArbiterVoteDelegate(String, Address),
-    /// Per-engagement dispute-window override in ledgers (issue #469).
-    DisputeWindowOverride(String),
-    /// Pending dispute-window override proposal (issue #469).
-    DisputeWindowProposal(String),
-    /// Whether split voting is enabled for an engagement (issue #462).
-    SplitVotingEnabled(String),
-    /// Amount withheld from a split-vote resolution pending claim (issue #462).
-    SplitWithheld(String),
-    /// Recruiter collateral bond for an engagement (issue #459).
-    RecruiterBond(String),
-    /// Aggregated star-rating summary for a recruiter (issue #470).
-    RecruiterRating(Address),
-    /// Set once an engagement has been rated (issue #470).
-    EngagementRated(String),
-    /// Preferred payout-token SAC for a recruiter (issue #458).
-    RecruiterPayoutToken(Address),
-    /// Shared arbiter panel registered under a bundle id (issue #464).
-    Bundle(String),
-    /// Ordered list of engagement IDs belonging to a bundle (issue #464).
-    BundleEngagements(String),
-}

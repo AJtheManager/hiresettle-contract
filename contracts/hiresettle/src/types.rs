@@ -304,6 +304,10 @@ pub struct EngagementConfig {
     pub recruiter_bond_amount: Option<i128>,
     /// Optional engagement bundle id whose shared panel is used (issue #464).
     pub bundle_id: Option<String>,
+    /// When `true`, `create_engagement` draws `total_amount` from the
+    /// company's pooled balance instead of a fresh token transfer
+    /// (issue #472). Default `false` preserves existing behaviour.
+    pub fund_from_pool: bool,
 }
 /// Vesting record for a streamed milestone payout (issue #466), stored under
 /// `DataKey::StreamedPayout(engagement_id, milestone_index)`.
@@ -431,4 +435,31 @@ pub struct SplitAmendmentEntry {
     pub new_split_bps: u32,
     /// Ledger when the amendment was accepted.
     pub ledger: u32,
+}
+/// Pending cosigner-gated admin config change (issue #473).
+#[contracttype]
+#[derive(Clone)]
+pub struct PendingConfigChange {
+    pub change_id: u64,
+    pub fn_id: u32,
+    pub u32_val: u32,
+    pub i128_val: i128,
+    pub bool_val: bool,
+    pub address_val: Option<Address>,
+    pub string_val: Option<String>,
+}
+/// Admin-configured emergency M-of-N signer set (issue #474).
+#[contracttype]
+#[derive(Clone)]
+pub struct EmergencySignerConfig {
+    pub signers: Vec<Address>,
+    pub threshold: u32,
+    pub vote_window_ledgers: u32,
+}
+/// Running tally of emergency pause votes within the current window (issue #474).
+#[contracttype]
+#[derive(Clone)]
+pub struct EmergencyVoteTally {
+    pub voters: Vec<Address>,
+    pub started_at_ledger: u32,
 }

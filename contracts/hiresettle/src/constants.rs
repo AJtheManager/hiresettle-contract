@@ -51,3 +51,12 @@ pub(crate) const MAX_AMENDMENT_LOG_ENTRIES: u32 = 20;
 pub(crate) const MIN_RATING_STARS: u32 = 1;
 /// Maximum stars accepted by `rate_recruiter` (issue #470).
 pub(crate) const MAX_RATING_STARS: u32 = 5;
+/// Default window for emergency pause votes to accumulate (issue #474).
+pub(crate) const DEFAULT_EMERGENCY_VOTE_WINDOW_LEDGERS: u32 = 1_728;
+/// Sensitive-setter function ids for cosigner gating (issue #473).
+pub(crate) const FN_SET_PLATFORM_FEE: u32 = 1;
+pub(crate) const FN_SET_TOKEN_ALLOWLIST_ENABLED: u32 = 2;
+pub(crate) const FN_SET_REFERRAL_DISCOUNT_BPS: u32 = 3;
+pub(crate) const FN_SET_ARBITER_FEE: u32 = 4;
+pub(crate) const FN_SET_MIN_AMOUNT: u32 = 5;
+pub(crate) const FN_SET_FEE_REBATE_BPS: u32 = 6;
