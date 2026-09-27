@@ -1024,4 +1024,61 @@ impl HireSettleContract {
     // ISSUE #59 — ADMIN ROLE RENOUNCEMENT
     // ----------------------------------------------------------
 
+    // ----------------------------------------------------------
+    // AMENDMENT TTL (shared by milestone + split amendments)
+    // ----------------------------------------------------------
+
+    /// Admin sets the proposal TTL used by amendment flows, in ledgers.
+    pub fn set_amendment_ttl(env: Env, admin: Address, ledgers: u32) {
+        Self::assert_admin(&env, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Config(ConfigKey::AmendmentTTL), &ledgers);
+        env.events()
+            .publish((Symbol::new(&env, "amendment_ttl_set"),), ledgers);
+    }
+
+    /// Return the amendment proposal TTL in ledgers (default 17_280 ≈ 1 day).
+    pub fn get_amendment_ttl(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Config(ConfigKey::AmendmentTTL))
+            .unwrap_or(DEFAULT_AMENDMENT_TTL_LEDGERS)
+    }
+
+    // ----------------------------------------------------------
+    // ISSUE #476 — RECRUITER VERIFICATION BADGE
+    // ----------------------------------------------------------
+
+    /// Admin sets or clears the verification flag for a recruiter address.
+    /// Foundation-only: does not gate any lifecycle behaviour.
+    ///
+    /// # Events
+    /// Emits `("recruiter_verified_set",)` with `(recruiter, verified)`.
+    pub fn set_recruiter_verified(env: Env, admin: Address, recruiter: Address, verified: bool) {
+        Self::assert_admin(&env, &admin);
+        let key = DataKey2::RecruiterVerified(recruiter.clone());
+        if verified {
+            env.storage().persistent().set(&key, &true);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, 100_000, 6_300_000);
+        } else {
+            env.storage().persistent().remove(&key);
+        }
+        env.events().publish(
+            (Symbol::new(&env, "recruiter_verified_set"),),
+            (recruiter, verified),
+        );
+    }
+
+    /// Permissionless read of the recruiter verification flag.
+    /// Never-set addresses return `false` without panicking.
+    pub fn is_recruiter_verified(env: Env, recruiter: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey2::RecruiterVerified(recruiter))
+            .unwrap_or(false)
+    }
+
 }

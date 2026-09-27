@@ -389,7 +389,7 @@ impl HireSettleContract {
                     duration,
                 ),
                 None => {
-                    Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client)
+                    Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client, true)
                 }
             }
         }
@@ -758,7 +758,7 @@ impl HireSettleContract {
         env.storage().persistent().extend_ttl(&key, 100_000, 6_300_000);
 
         let token_client = token::Client::new(&env, &engagement.token);
-        Self::distribute_recruiter_payout(&env, &engagement, amount, &token_client);
+        Self::distribute_recruiter_payout(&env, &engagement, amount, &token_client, true);
 
         env.events().publish(
             (

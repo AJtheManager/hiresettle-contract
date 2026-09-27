@@ -38,7 +38,7 @@ impl HireSettleContract {
             panic!("EngagementNotCompleted");
         }
 
-        let rated_key = DataKey::EngagementRated(engagement_id.clone());
+        let rated_key = DataKey2::EngagementRated(engagement_id.clone());
         if env.storage().persistent().has(&rated_key) {
             panic!("AlreadyRated");
         }
@@ -47,7 +47,7 @@ impl HireSettleContract {
             .persistent()
             .extend_ttl(&rated_key, 100_000, 6_300_000);
 
-        let rating_key = DataKey::RecruiterRating(engagement.recruiter.clone());
+        let rating_key = DataKey2::RecruiterRating(engagement.recruiter.clone());
         let mut summary: RatingSummary =
             env.storage()
                 .persistent()
@@ -74,7 +74,7 @@ impl HireSettleContract {
     pub fn get_recruiter_rating(env: Env, recruiter: Address) -> Option<RatingSummary> {
         env.storage()
             .persistent()
-            .get(&DataKey::RecruiterRating(recruiter))
+            .get(&DataKey2::RecruiterRating(recruiter))
     }
 
     // ----------------------------------------------------------
@@ -145,7 +145,7 @@ impl HireSettleContract {
         let summary: Option<RatingSummary> = env
             .storage()
             .persistent()
-            .get(&DataKey::RecruiterRating(recruiter.clone()));
+            .get(&DataKey2::RecruiterRating(recruiter.clone()));
         let summary = match summary {
             Some(s) if s.rating_count > 0 => s,
             _ => return base,
