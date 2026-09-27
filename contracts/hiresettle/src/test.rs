@@ -12,6 +12,7 @@ use soroban_sdk::{
 // ============================================================
 
 /// Minimal contract WASM used by issue #456 execute_upgrade success path.
+#[allow(dead_code)]
 const UPGRADE_DUMMY_WASM: &[u8] = include_bytes!("../testdata/upgrade_dummy.wasm");
 
 fn setup() -> (Env, Address, Address, Address, Address, Address) {
