@@ -241,6 +241,7 @@ impl HireSettleContract {
 
     /// Resolve the bundle an engagement is joining, checking it exists and
     /// belongs to `company`.
+    #[allow(dead_code)]
     pub(crate) fn load_bundle_for(env: &Env, bundle_id: &String, company: &Address) -> EngagementBundle {
         let bundle: EngagementBundle = env
             .storage()

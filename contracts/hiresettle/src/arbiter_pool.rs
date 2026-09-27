@@ -227,12 +227,9 @@ impl HireSettleContract {
         }
         let votes = stats.votes_cast.min(stats.disputes_assigned) as u64;
         let completion = votes * 100 / stats.disputes_assigned as u64;
-        let speed = if votes == 0 {
-            0
-        } else {
-            let avg = stats.total_response_ledgers / votes;
+        let speed = stats.total_response_ledgers.checked_div(votes).map_or(0, |avg| {
             100 * ARBITER_RESPONSE_REFERENCE_LEDGERS / (ARBITER_RESPONSE_REFERENCE_LEDGERS + avg)
-        };
+        });
         ((completion * speed / 100) as u32).max(1)
     }
 

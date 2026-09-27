@@ -1,4 +1,8 @@
-h# HireSettle — Recruitment Fee Settlement Contract
+# HireSettle — Recruitment Fee Settlement Contract
+
+[![Test Status](https://github.com/TrustHire/hiresettle-contract/actions/workflows/test.yml/badge.svg)](https://github.com/TrustHire/hiresettle-contract/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](contracts/hiresettle/Cargo.toml)
 
 A [Soroban](https://soroban.stellar.org/) smart contract deployed on Stellar for managing recruitment fee settlements through milestone-based escrow payments. Built with `#![no_std]` Rust and the Soroban SDK.
 
