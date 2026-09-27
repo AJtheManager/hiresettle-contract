@@ -300,37 +300,10 @@ pub struct EngagementConfig {
     /// milestone's net payout linearly over `n` ledgers, claimable via
     /// `claim_streamed_payout`. Must be non-zero if provided.
     pub stream_duration_ledgers: Option<u32>,
-    /// Optional recruiter collateral bond locked at creation (issue #459).
-    /// `None` means no bond; `Some(amount)` escrows that amount from the
-    /// recruiter in addition to the company escrow.
+    /// Optional recruiter collateral bond amount escrowed at creation (issue #459).
     pub recruiter_bond_amount: Option<i128>,
-    /// Optional engagement-bundle id (issue #464). When set, the engagement
-    /// is registered under the named shared arbiter panel.
+    /// Optional engagement bundle id whose shared panel is used (issue #464).
     pub bundle_id: Option<String>,
-}
-/// Recruiter collateral bond escrowed at engagement creation (issue #459).
-#[contracttype]
-#[derive(Clone)]
-pub struct RecruiterBond {
-    /// Bond principal locked from the recruiter, in token smallest units.
-    pub amount: i128,
-    /// Whether any forfeit condition has already been applied.
-    pub forfeited: bool,
-    /// Whether the bond has been fully settled (returned / forfeited).
-    pub settled: bool,
-    /// Milestone indices whose disputes resolved against the recruiter.
-    pub rejected_milestones: Vec<u32>,
-}
-/// Shared arbiter panel registered under a bundle id (issue #464).
-#[contracttype]
-#[derive(Clone)]
-pub struct EngagementBundle {
-    /// Company that registered the bundle; only this address may add members.
-    pub company: Address,
-    /// Shared arbiter panel applied to member engagements.
-    pub arbiters: Vec<Address>,
-    /// Quorum required on the shared panel.
-    pub quorum: u32,
 }
 /// Vesting record for a streamed milestone payout (issue #466), stored under
 /// `DataKey::StreamedPayout(engagement_id, milestone_index)`.
@@ -405,4 +378,57 @@ pub struct DisputeWindowProposal {
     pub ledgers: u32,
     /// Last ledger at which the proposal can still be accepted.
     pub expires_at_ledger: u32,
+}
+/// Recruiter collateral bond escrowed at engagement creation (issue #459).
+#[contracttype]
+#[derive(Clone)]
+pub struct RecruiterBond {
+    /// Bond amount locked in escrow.
+    pub amount: i128,
+    /// Whether any portion was forfeited to the company on settlement.
+    pub forfeited: bool,
+    /// Whether the bond has already been paid out.
+    pub settled: bool,
+    /// Milestone indices whose dispute resolved against the recruiter and
+    /// have not yet been re-confirmed/resolved.
+    pub rejected_milestones: Vec<u32>,
+}
+/// Shared arbiter panel registered under a bundle id (issue #464).
+#[contracttype]
+#[derive(Clone)]
+pub struct EngagementBundle {
+    /// Company that owns the bundle.
+    pub company: Address,
+    /// Shared arbiter panel.
+    pub arbiters: Vec<Address>,
+    /// Quorum for engagements created under this bundle.
+    pub quorum: u32,
+}
+/// Pending co-recruiter split amendment (issue #471).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitAmendmentProposal {
+    /// Address that proposed the new split.
+    pub proposer: Address,
+    /// `true` if the primary recruiter proposed; `false` if the co-recruiter did.
+    pub proposed_by_recruiter: bool,
+    /// Proposed primary-recruiter share in basis points (≤ 10_000).
+    pub new_split_bps: u32,
+    /// Ledger at which the proposal was made.
+    pub proposed_at_ledger: u32,
+    /// Last ledger at which the proposal can still be accepted.
+    pub expires_at_ledger: u32,
+}
+/// History entry recorded when a split amendment is accepted (issue #471).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SplitAmendmentEntry {
+    /// Address that proposed the accepted change.
+    pub proposer: Address,
+    /// Previous `recruiter_split_bps`.
+    pub old_split_bps: u32,
+    /// New `recruiter_split_bps`.
+    pub new_split_bps: u32,
+    /// Ledger when the amendment was accepted.
+    pub ledger: u32,
 }
