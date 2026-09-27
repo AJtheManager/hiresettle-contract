@@ -376,7 +376,7 @@ impl HireSettleContract {
         env.storage().persistent().remove(&DataKey2::ArbiterSplitVotes(
             engagement_id.clone(),
             milestone_index,
-        ));
+        )));
         env.storage().persistent().remove(&DataKey::DisputeReason(
             engagement_id.clone(),
             milestone_index,
@@ -648,7 +648,7 @@ impl HireSettleContract {
             .get::<DataKey2, ArbiterSplitVoteRecord>(&DataKey2::ArbiterSplitVotes(
                 engagement_id,
                 milestone_index,
-            ))
+            )))
             .map(|record| record.splits)
             .unwrap_or_else(|| Vec::new(&env))
     }
