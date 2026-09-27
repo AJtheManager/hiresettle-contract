@@ -1,4 +1,4 @@
-use soroban_sdk::{contractimpl, token, Address, Env, String, Symbol};
+use soroban_sdk::{contractimpl, token, Address, Env, String, Symbol, Vec};
 use crate::*;
 
 #[contractimpl]
@@ -389,7 +389,13 @@ impl HireSettleContract {
                     duration,
                 ),
                 None => {
-                    Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client)
+                    Self::distribute_recruiter_payout(
+                        &env,
+                        &engagement,
+                        net_payment,
+                        &token_client,
+                        true,
+                    )
                 }
             }
         }
@@ -482,6 +488,162 @@ impl HireSettleContract {
     // ISSUE #39 — BATCH CONFIRM MILESTONES
     // ----------------------------------------------------------
 
+    /// Confirm several milestones in one transaction with all-or-nothing
+    /// semantics. Honours platform-fee waiver the same way as
+    /// `confirm_milestone` / `force_confirm_milestone`.
+    ///
+    /// # Panics
+    /// - `"EmptyIndices"` — `milestone_indices` is empty.
+    /// - `"engagement is not active"` — engagement is not `Active`.
+    /// - `"unauthorized"` — caller is not the company / co-signer.
+    /// - `"milestone proof not yet submitted"` — a target is not `ProofSubmitted`.
+    /// - `"retention window has not elapsed — cannot confirm yet"` — retention gate.
+    /// - `"PreviousMilestoneNotComplete"` — a prerequisite is not done and not
+    ///   also present in this batch.
+    pub fn batch_confirm_milestones(
+        env: Env,
+        company: Address,
+        engagement_id: String,
+        milestone_indices: Vec<u32>,
+    ) {
+        Self::assert_not_paused(&env);
+        Self::assert_engagement_not_paused(&env, &engagement_id);
+        company.require_auth();
+
+        if milestone_indices.is_empty() {
+            panic!("EmptyIndices");
+        }
+
+        let mut engagement = Self::get_engagement_internal(&env, &engagement_id);
+
+        if engagement.status != EngagementStatus::Active {
+            panic!("{}", ERR_ENGAGEMENT_NOT_ACTIVE);
+        }
+
+        if !Self::is_authorized_company(&env, &company, &engagement.company) {
+            panic!("{}", ERR_UNAUTHORIZED);
+        }
+
+        // Validate all milestones first (atomic rejection).
+        for i in 0..milestone_indices.len() {
+            let idx = milestone_indices.get(i).unwrap();
+            let m = Self::get_milestone_or_panic(&engagement, idx);
+            if m.status != MilestoneStatus::ProofSubmitted {
+                panic!("milestone proof not yet submitted");
+            }
+            if m.kind == MilestoneKind::Retention && env.ledger().sequence() < m.valid_after_ledger
+            {
+                panic!("retention window has not elapsed — cannot confirm yet");
+            }
+            // Prerequisites must be done on-chain or included in this batch.
+            for j in 0..m.prerequisites.len() {
+                let prereq_idx = m.prerequisites.get(j).unwrap();
+                let prev = engagement.milestones.get(prereq_idx).unwrap();
+                let done_already = prev.status == MilestoneStatus::Confirmed
+                    || prev.status == MilestoneStatus::Resolved;
+                let done_in_batch = (0..milestone_indices.len())
+                    .any(|k| milestone_indices.get(k).unwrap() == prereq_idx);
+                if !done_already && !done_in_batch {
+                    panic!("PreviousMilestoneNotComplete");
+                }
+            }
+        }
+
+        let platform_fee = Self::get_platform_fee_internal(&env);
+        let effective_bps = Self::effective_platform_fee_bps(
+            &env,
+            &engagement_id,
+            platform_fee.bps,
+            engagement.total_amount,
+        );
+        let token_client = token::Client::new(&env, &engagement.token);
+
+        for i in 0..milestone_indices.len() {
+            let idx = milestone_indices.get(i).unwrap();
+            let mut m = engagement.milestones.get(idx).unwrap();
+
+            let payment = (engagement.total_amount * m.payment_percent as i128) / 100;
+            let fee_amount = (payment * effective_bps as i128) / 10_000;
+            let net_payment = payment - fee_amount;
+            engagement.released_amount += payment;
+
+            if fee_amount > 0 {
+                token_client.transfer(
+                    &env.current_contract_address(),
+                    &platform_fee.treasury,
+                    &fee_amount,
+                );
+                env.events().publish(
+                    (
+                        Symbol::new(&env, "platform_fee_collected"),
+                        engagement_id.clone(),
+                    ),
+                    (idx, fee_amount, platform_fee.treasury.clone()),
+                );
+            }
+            Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client, true);
+
+            let old_status = m.status.clone();
+            m.status = MilestoneStatus::Confirmed;
+            engagement.milestones.set(idx, m);
+            Self::bond_clear_rejection(&env, &engagement_id, idx);
+
+            Self::emit_milestone_status_changed(
+                &env,
+                &engagement_id,
+                idx,
+                old_status,
+                MilestoneStatus::Confirmed,
+            );
+
+            env.events().publish(
+                (
+                    Symbol::new(&env, "milestone_confirmed"),
+                    engagement_id.clone(),
+                ),
+                (idx, payment),
+            );
+        }
+
+        let all_done = (0..engagement.milestones.len()).all(|i| {
+            let s = engagement.milestones.get(i).unwrap().status;
+            s == MilestoneStatus::Confirmed || s == MilestoneStatus::Resolved
+        });
+
+        let old_engagement_status = engagement.status.clone();
+        if all_done {
+            engagement.status = EngagementStatus::Completed;
+            Self::refund_no_show_forfeit(&env, &engagement_id, &engagement);
+            Self::decrement_company_active_count(&env, &engagement.company);
+            Self::refund_split_withheld(&env, &engagement_id, &mut engagement);
+        }
+        engagement.last_activity_ledger = env.ledger().sequence();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Engagement(engagement_id.clone()), &engagement);
+        Self::extend_engagement_ttl(&env, &engagement_id);
+        Self::emit_engagement_status_changed(
+            &env,
+            &engagement_id,
+            old_engagement_status,
+            engagement.status.clone(),
+        );
+
+        if all_done {
+            env.events().publish(
+                (
+                    Symbol::new(&env, "engagement_completed"),
+                    engagement_id.clone(),
+                ),
+                (
+                    engagement_id.clone(),
+                    engagement.released_amount,
+                    env.ledger().sequence(),
+                ),
+            );
+        }
+    }
 
     // ----------------------------------------------------------
     // CONFIRM WINDOW — AUTO-CONFIRM AFTER INACTION
@@ -758,7 +920,7 @@ impl HireSettleContract {
         env.storage().persistent().extend_ttl(&key, 100_000, 6_300_000);
 
         let token_client = token::Client::new(&env, &engagement.token);
-        Self::distribute_recruiter_payout(&env, &engagement, amount, &token_client);
+        Self::distribute_recruiter_payout(&env, &engagement, amount, &token_client, true);
 
         env.events().publish(
             (

@@ -14,7 +14,7 @@ impl HireSettleContract {
     pub fn get_recruiter_bond(env: Env, engagement_id: String) -> Option<(i128, bool)> {
         env.storage()
             .persistent()
-            .get::<DataKey, RecruiterBond>(&DataKey::RecruiterBond(engagement_id))
+            .get::<DataKey, RecruiterBond>(&DataKey::Ext(ExtKey::RecruiterBond(engagement_id)))
             .map(|b| (b.amount, b.forfeited))
     }
 
@@ -60,7 +60,7 @@ impl HireSettleContract {
             &env.current_contract_address(),
             &amount,
         );
-        let key = DataKey::RecruiterBond(engagement_id.clone());
+        let key = DataKey::Ext(ExtKey::RecruiterBond(engagement_id.clone()));
         env.storage().persistent().set(
             &key,
             &RecruiterBond {
@@ -80,7 +80,7 @@ impl HireSettleContract {
     /// Record that a dispute on `milestone_index` resolved against the
     /// recruiter's proof. No-op when the engagement has no bond.
     pub(crate) fn bond_record_rejection(env: &Env, engagement_id: &String, milestone_index: u32) {
-        let key = DataKey::RecruiterBond(engagement_id.clone());
+        let key = DataKey::Ext(ExtKey::RecruiterBond(engagement_id.clone()));
         if let Some(mut bond) = env.storage().persistent().get::<DataKey, RecruiterBond>(&key) {
             if !bond.rejected_milestones.contains(milestone_index) {
                 bond.rejected_milestones.push_back(milestone_index);
@@ -92,7 +92,7 @@ impl HireSettleContract {
     /// Clear the rejection mark on `milestone_index` once it is confirmed or
     /// resolved — the recruiter successfully resubmitted. No-op without a bond.
     pub(crate) fn bond_clear_rejection(env: &Env, engagement_id: &String, milestone_index: u32) {
-        let key = DataKey::RecruiterBond(engagement_id.clone());
+        let key = DataKey::Ext(ExtKey::RecruiterBond(engagement_id.clone()));
         if let Some(mut bond) = env.storage().persistent().get::<DataKey, RecruiterBond>(&key) {
             if let Some(pos) = bond.rejected_milestones.first_index_of(milestone_index) {
                 bond.rejected_milestones.remove(pos);
@@ -108,7 +108,7 @@ impl HireSettleContract {
     /// full bond is returned to the recruiter. Settles at most once; no-op
     /// without a bond.
     pub(crate) fn settle_recruiter_bond(env: &Env, engagement: &Engagement) {
-        let key = DataKey::RecruiterBond(engagement.id.clone());
+        let key = DataKey::Ext(ExtKey::RecruiterBond(engagement.id.clone()));
         let mut bond = match env.storage().persistent().get::<DataKey, RecruiterBond>(&key) {
             Some(b) if !b.settled => b,
             _ => return,
@@ -168,7 +168,7 @@ impl HireSettleContract {
         if bundle_id.is_empty() || bundle_id.len() > MAX_ENGAGEMENT_ID_LENGTH {
             panic!("InvalidBundleId");
         }
-        let key = DataKey::Bundle(bundle_id.clone());
+        let key = DataKey::Ext(ExtKey::Bundle(bundle_id.clone()));
         if env.storage().persistent().has(&key) {
             panic!("BundleAlreadyExists");
         }
@@ -208,7 +208,7 @@ impl HireSettleContract {
 
     /// Return the bundle's shared panel configuration, or `None` if unregistered.
     pub fn get_bundle(env: Env, bundle_id: String) -> Option<EngagementBundle> {
-        env.storage().persistent().get(&DataKey::Bundle(bundle_id))
+        env.storage().persistent().get(&DataKey::Ext(ExtKey::Bundle(bundle_id)))
     }
 
     /// Return a page of engagement IDs created under `bundle_id`, in creation
@@ -223,7 +223,7 @@ impl HireSettleContract {
         let ids: Vec<String> = env
             .storage()
             .persistent()
-            .get(&DataKey::BundleEngagements(bundle_id))
+            .get(&DataKey::Ext(ExtKey::BundleEngagements(bundle_id)))
             .unwrap_or_else(|| Vec::new(&env));
 
         let total = ids.len();
@@ -245,7 +245,7 @@ impl HireSettleContract {
         let bundle: EngagementBundle = env
             .storage()
             .persistent()
-            .get(&DataKey::Bundle(bundle_id.clone()))
+            .get(&DataKey::Ext(ExtKey::Bundle(bundle_id.clone())))
             .unwrap_or_else(|| panic!("BundleNotFound"));
         if bundle.company != *company {
             panic!("BundleCompanyMismatch");
@@ -255,7 +255,7 @@ impl HireSettleContract {
 
     /// Append a newly created engagement to its bundle's member index.
     pub(crate) fn add_bundle_member(env: &Env, bundle_id: &String, engagement_id: &String) {
-        let key = DataKey::BundleEngagements(bundle_id.clone());
+        let key = DataKey::Ext(ExtKey::BundleEngagements(bundle_id.clone()));
         let mut ids: Vec<String> = env
             .storage()
             .persistent()

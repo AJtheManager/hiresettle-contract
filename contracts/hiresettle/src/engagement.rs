@@ -597,7 +597,7 @@ impl HireSettleContract {
                                 .remove(&DataKey::ArbiterVotes(engagement_id.clone(), i));
                             env.storage()
                                 .persistent()
-                                .remove(&DataKey::ArbiterSplitVotes(engagement_id.clone(), i));
+                                .remove(&DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), i)));
                             env.storage()
                                 .persistent()
                                 .remove(&DataKey::DisputeReason(engagement_id.clone(), i));

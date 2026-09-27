@@ -300,6 +300,45 @@ pub struct EngagementConfig {
     /// milestone's net payout linearly over `n` ledgers, claimable via
     /// `claim_streamed_payout`. Must be non-zero if provided.
     pub stream_duration_ledgers: Option<u32>,
+    /// Optional recruiter collateral bond escrowed at creation (issue #459).
+    /// When `Some(amount)`, `amount` is pulled from the recruiter in addition
+    /// to the company-funded escrow and settled on terminal engagement states.
+    pub recruiter_bond_amount: Option<i128>,
+    /// Optional engagement bundle to join (issue #464). When `Some`, the
+    /// bundle must already be registered via `create_engagement_bundle` by the
+    /// same company, and its shared arbiter panel/quorum is used in place of
+    /// the `arbiter_setup` argument (which is then ignored).
+    pub bundle_id: Option<String>,
+}
+/// Escrowed recruiter collateral bond for a single engagement (issue #459).
+/// Stored under `DataKey::Ext(ExtKey::RecruiterBond(engagement_id))`.
+#[contracttype]
+#[derive(Clone)]
+pub struct RecruiterBond {
+    /// Bond amount escrowed at creation, in the engagement token's smallest unit.
+    pub amount: i128,
+    /// `true` once the bond has been (fully or partly) forfeited to the company.
+    pub forfeited: bool,
+    /// `true` once the bond has been paid out (returned and/or forfeited);
+    /// guarantees the bond settles at most once.
+    pub settled: bool,
+    /// Milestone indices whose dispute was rejected (reject quorum or
+    /// super-arbiter rejection) and that have not since been confirmed or
+    /// resolved. If any remain when the engagement is cancelled or expires,
+    /// the bond is forfeited.
+    pub rejected_milestones: Vec<u32>,
+}
+/// Shared arbiter panel registered for an engagement bundle (issue #464).
+/// Stored under `DataKey::Ext(ExtKey::Bundle(bundle_id))`.
+#[contracttype]
+#[derive(Clone)]
+pub struct EngagementBundle {
+    /// Company that registered the bundle; only it may create member engagements.
+    pub company: Address,
+    /// Arbiter panel copied onto every member engagement at creation time.
+    pub arbiters: Vec<Address>,
+    /// M-of-N quorum copied onto every member engagement at creation time.
+    pub quorum: u32,
 }
 /// Vesting record for a streamed milestone payout (issue #466), stored under
 /// `DataKey::StreamedPayout(engagement_id, milestone_index)`.

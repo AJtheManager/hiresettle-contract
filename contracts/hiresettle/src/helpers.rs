@@ -278,7 +278,7 @@ impl HireSettleContract {
         for i in 0..engagement.arbiters.len() {
             let arbiter = engagement.arbiters.get(i).unwrap();
             let delegate: Option<Address> = env.storage().persistent().get(
-                &DataKey::ArbiterVoteDelegate(engagement_id.clone(), arbiter.clone()),
+                &DataKey::Ext(ExtKey::ArbiterVoteDelegate(engagement_id.clone(), arbiter.clone())),
             );
             if delegate.as_ref() == Some(caller) {
                 return (arbiter, i);
@@ -363,7 +363,7 @@ impl HireSettleContract {
         engagement_id: &String,
         engagement: &mut Engagement,
     ) {
-        let key = DataKey::SplitWithheld(engagement_id.clone());
+        let key = DataKey::Ext(ExtKey::SplitWithheld(engagement_id.clone()));
         let recorded: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         if recorded <= 0 {
             return;

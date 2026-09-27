@@ -116,6 +116,16 @@ pub enum ConfigKey {
     /// Admin-configurable recruiter no-show deadline in ledgers (issue #465).
     /// `0` (the default) disables `trigger_no_show` entirely.
     NoShowDeadline,
+    /// Rating-based proof cooldown discount curve (issue #470), stored as a
+    /// single `ProofCooldownDiscount` struct.
+    ProofCooldownDiscount,
+    /// Admin-registered trusted swap-adapter contract used to convert a
+    /// recruiter's net payout into their preferred token (issue #458).
+    /// Unset means no swap is attempted.
+    SwapAdapter,
+    /// Fraction of a recruiter bond forfeited to the company, in basis points
+    /// (issue #459). Default 10_000 (100 %).
+    BondForfeitBps,
 }
 /// Contract storage key space. Instance keys reset between transactions;
 /// persistent keys survive across ledgers.
@@ -231,4 +241,38 @@ pub enum DataKey {
     ArbiterPool,
     /// Historical dispute-response record for an arbiter address (issue #468).
     ArbiterStats(Address),
+    /// Nested storage keys that would otherwise push `DataKey` past the
+    /// Soroban union case limit of 50. See [`ExtKey`].
+    Ext(ExtKey),
+}
+
+/// Secondary storage-key space nested under [`DataKey::Ext`] so the primary
+/// `DataKey` enum stays within Soroban's 50-variant union limit.
+#[contracttype]
+#[derive(Clone)]
+pub enum ExtKey {
+    /// Accumulated star ratings received by a recruiter (issue #470).
+    RecruiterRating(Address),
+    /// Set once a completed engagement has been rated (issue #470).
+    EngagementRated(String),
+    /// Pending dispute-window override proposal (issue #469).
+    DisputeWindowProposal(String),
+    /// Accepted per-engagement dispute-window override (issue #469).
+    DisputeWindowOverride(String),
+    /// Recruiter preferred payout token (issue #458).
+    RecruiterPayoutToken(Address),
+    /// Escrowed recruiter collateral bond (issue #459).
+    RecruiterBond(String),
+    /// Shared arbiter panel for an engagement bundle (issue #464).
+    Bundle(String),
+    /// Engagement IDs belonging to a bundle (issue #464).
+    BundleEngagements(String),
+    /// Split-vote tally for a disputed milestone (issue #462).
+    ArbiterSplitVotes(String, u32),
+    /// Whether split voting is enabled for an engagement (issue #462).
+    SplitVotingEnabled(String),
+    /// Milestone share withheld by split-vote resolutions (issue #462).
+    SplitWithheld(String),
+    /// Standing vote delegate for (engagement_id, arbiter) (issue #463).
+    ArbiterVoteDelegate(String, Address),
 }
