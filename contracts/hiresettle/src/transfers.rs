@@ -398,7 +398,7 @@ impl HireSettleContract {
             .remove(&DataKey2::ArbiterVoteDelegate(
                 engagement_id.clone(),
                 nomination.current.clone(),
-            )));
+            ));
         for i in 0..engagement.arbiters.len() {
             let other = engagement.arbiters.get(i).unwrap();
             let key = DataKey2::ArbiterVoteDelegate(engagement_id.clone(), other);
