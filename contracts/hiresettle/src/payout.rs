@@ -30,9 +30,9 @@ impl HireSettleContract {
         recruiter.require_auth();
         env.storage()
             .persistent()
-            .set(&DataKey::RecruiterPayoutToken(recruiter.clone()), &token);
+            .set(&DataKey2::RecruiterPayoutToken(recruiter.clone()), &token);
         env.storage().persistent().extend_ttl(
-            &DataKey::RecruiterPayoutToken(recruiter.clone()),
+            &DataKey2::RecruiterPayoutToken(recruiter.clone()),
             100_000,
             6_300_000,
         );
@@ -48,7 +48,7 @@ impl HireSettleContract {
         recruiter.require_auth();
         env.storage()
             .persistent()
-            .remove(&DataKey::RecruiterPayoutToken(recruiter.clone()));
+            .remove(&DataKey2::RecruiterPayoutToken(recruiter.clone()));
         env.events()
             .publish((Symbol::new(&env, "payout_token_cleared"), recruiter), ());
     }
@@ -57,7 +57,7 @@ impl HireSettleContract {
     pub fn get_recruiter_payout_token(env: Env, recruiter: Address) -> Option<Address> {
         env.storage()
             .persistent()
-            .get(&DataKey::RecruiterPayoutToken(recruiter))
+            .get(&DataKey2::RecruiterPayoutToken(recruiter))
     }
 
     /// Admin registers the trusted swap-adapter contract used to convert
@@ -101,7 +101,7 @@ impl HireSettleContract {
         let preferred: Option<Address> = env
             .storage()
             .persistent()
-            .get(&DataKey::RecruiterPayoutToken(recipient.clone()));
+            .get(&DataKey2::RecruiterPayoutToken(recipient.clone()));
         let adapter: Option<Address> = env
             .storage()
             .instance()

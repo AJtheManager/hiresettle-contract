@@ -116,6 +116,17 @@ pub enum ConfigKey {
     /// Admin-configurable recruiter no-show deadline in ledgers (issue #465).
     /// `0` (the default) disables `trigger_no_show` entirely.
     NoShowDeadline,
+    /// Trusted swap-adapter contract address for recruiter payout token
+    /// conversion (issue #458).
+    SwapAdapter,
+    /// Rating-based proof cooldown discount curve (issue #470).
+    ProofCooldownDiscount,
+    /// Fraction of a recruiter bond forfeited on unresolved rejections,
+    /// in basis points (issue #459). Default 10_000 (100 %).
+    BondForfeitBps,
+    /// TTL in ledgers for amendment / split-amendment proposals
+    /// (default 17_280 ≈ 1 day).
+    AmendmentTTL,
 }
 /// Contract storage key space. Instance keys reset between transactions;
 /// persistent keys survive across ledgers.
@@ -231,4 +242,42 @@ pub enum DataKey {
     ArbiterPool,
     /// Historical dispute-response record for an arbiter address (issue #468).
     ArbiterStats(Address),
+}
+
+/// Overflow storage key space kept under the Soroban 50-variant union limit
+/// on [`DataKey`]. Newer features land here.
+#[contracttype]
+pub enum DataKey2 {
+    /// Split-vote tally for a disputed (engagement_id, milestone_index) (issue #462).
+    ArbiterSplitVotes(String, u32),
+    /// Whether split voting is enabled for an engagement (issue #462).
+    SplitVotingEnabled(String),
+    /// Milestone share withheld by split-vote resolutions, pending refund (issue #462).
+    SplitWithheld(String),
+    /// Vote delegate for an arbiter slot on an engagement (issue #463).
+    ArbiterVoteDelegate(String, Address),
+    /// Recruiter's preferred payout token across engagements (issue #458).
+    RecruiterPayoutToken(Address),
+    /// Pending per-engagement dispute window override proposal (issue #469).
+    DisputeWindowProposal(String),
+    /// Accepted per-engagement dispute window override in ledgers (issue #469).
+    DisputeWindowOverride(String),
+    /// Set once a company has rated the recruiter on an engagement (issue #470).
+    EngagementRated(String),
+    /// Aggregated star ratings for a recruiter (issue #470).
+    RecruiterRating(Address),
+    /// Recruiter collateral bond for an engagement (issue #459).
+    RecruiterBond(String),
+    /// Shared arbiter panel registered under a bundle id (issue #464).
+    Bundle(String),
+    /// Engagement IDs created under a bundle, in creation order (issue #464).
+    BundleEngagements(String),
+    /// Admin-set recruiter verification flag (issue #476). Absent ⇒ false.
+    RecruiterVerified(Address),
+    /// Pending co-recruiter split amendment proposal (issue #471).
+    SplitAmendmentProposal(String),
+    /// Accepted co-recruiter split amendment history (issue #471).
+    SplitAmendmentLog(String),
+    /// Arbiters who have self-recused from a specific dispute (issue #477).
+    RecusedArbiters(String, u32),
 }
