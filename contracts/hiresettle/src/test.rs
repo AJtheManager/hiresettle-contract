@@ -9296,3 +9296,479 @@ fn test_recuse_arbiter_reject_quorum_and_scope() {
     );
 }
 
+// ============================================================
+// #449 — remove_token_min_amount reverts to admin-wide floor
+// ============================================================
+
+#[test]
+fn test_remove_token_min_amount_reverts_to_global_floor() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let global_min: i128 = 2_000_000;
+    let token_min: i128 = 8_000_000;
+    client.set_min_amount(&company, &global_min);
+    client.set_token_min_amount(&company, &token_id, &token_min);
+
+    assert_eq!(client.get_effective_min_amount(&token_id), token_min);
+
+    // While the override is active, an amount between global and token min is rejected.
+    let between = token_min - 1;
+    let below_override = client.try_create_engagement(
+        &String::from_str(&env, "ENG-TKMIN-BELOW"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &between,
+        &String::from_str(&env, "Engineer"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &default_config(),
+    );
+    assert!(below_override.is_err());
+
+    client.remove_token_min_amount(&company, &token_id);
+
+    assert_eq!(client.get_token_min_amount(&token_id), None);
+    assert_eq!(client.get_effective_min_amount(&token_id), global_min);
+
+    // Immediately after removal, create_engagement enforces the global floor:
+    // between (was below token min) now succeeds; one below global still fails.
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TKMIN-OK"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &between,
+        &String::from_str(&env, "Engineer"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &default_config(),
+    );
+
+    let below_global = client.try_create_engagement(
+        &String::from_str(&env, "ENG-TKMIN-GLOBAL"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &(global_min - 1),
+        &String::from_str(&env, "Engineer"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &default_config(),
+    );
+    assert!(below_global.is_err());
+}
+
+// ============================================================
+// #450 — rating attribution after recruiter transfer
+// ============================================================
+
+#[test]
+fn test_rating_attributed_to_incoming_recruiter_after_transfer() {
+    let (env, contract_id, token_id, company, original_recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let incoming_recruiter = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-RATE-XFER");
+
+    // Two milestones with a short retention window so ledger advances stay
+    // within persistent TTL (long 30/90-day fixtures archive balances).
+    let milestones = vec![
+        &env,
+        Milestone {
+            name: String::from_str(&env, "Candidate Placed"),
+            payment_percent: 40,
+            kind: MilestoneKind::Placement,
+            valid_after_ledger: 0,
+            proof_hash: String::from_str(&env, ""),
+            status: MilestoneStatus::Pending,
+            proof_submitted_at: 0,
+            replacement_paid_out: 0,
+            prerequisites: Vec::new(&env),
+        },
+        Milestone {
+            name: String::from_str(&env, "Short Retention"),
+            payment_percent: 60,
+            kind: MilestoneKind::Retention,
+            valid_after_ledger: 0,
+            proof_hash: String::from_str(&env, ""),
+            status: MilestoneStatus::Locked,
+            proof_submitted_at: 0,
+            replacement_paid_out: 0,
+            prerequisites: vec![&env, 0u32],
+        },
+    ];
+
+    client.create_engagement(
+        &eng_id,
+        &company,
+        &original_recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Transfer Rating"),
+        &milestones,
+        &vec![&env, 1u32],
+        &default_config(),
+    );
+
+    // Pay out the placement milestone to the original recruiter before transfer.
+    client.submit_proof(
+        &original_recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://offer"),
+    );
+    client.confirm_milestone(&company, &eng_id, &0);
+    let released_before_transfer = client.get_engagement_summary(&eng_id).released_amount;
+    assert_eq!(released_before_transfer, 400_000_000);
+
+    client.propose_recruiter_transfer(&original_recruiter, &eng_id, &incoming_recruiter);
+    client.accept_recruiter_transfer(&company, &eng_id);
+    assert_eq!(client.get_engagement(&eng_id).recruiter, incoming_recruiter);
+
+    // Past payout history is unchanged by the transfer.
+    assert_eq!(
+        client.get_engagement_summary(&eng_id).released_amount,
+        released_before_transfer
+    );
+
+    // Complete the remaining milestone as the incoming recruiter.
+    advance_ledger(&env, 1 * 17_280 + 1);
+    client.unlock_milestone(&eng_id, &1);
+    client.submit_proof(
+        &incoming_recruiter,
+        &eng_id,
+        &1,
+        &String::from_str(&env, "ipfs://retention"),
+    );
+    client.confirm_milestone(&company, &eng_id, &1);
+
+    assert_eq!(
+        client.get_engagement(&eng_id).status,
+        EngagementStatus::Completed
+    );
+
+    client.rate_recruiter(&company, &eng_id, &5);
+
+    let incoming = client.get_recruiter_rating(&incoming_recruiter).unwrap();
+    assert_eq!(incoming.total_stars, 5);
+    assert_eq!(incoming.rating_count, 1);
+
+    // Original recruiter's tally is unaffected.
+    assert!(client.get_recruiter_rating(&original_recruiter).is_none());
+}
+
+// ============================================================
+// #451 — get_public_engagement_ids excludes non-public
+// ============================================================
+
+#[test]
+fn test_get_public_engagement_ids_excludes_private() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let mut public_cfg = default_config();
+    public_cfg.is_public = true;
+
+    // Mix of public and private (default) engagements.
+    client.create_engagement(
+        &String::from_str(&env, "ENG-PRIV-1"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Private One"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &default_config(),
+    );
+    client.create_engagement(
+        &String::from_str(&env, "ENG-PUB-1"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Public One"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &public_cfg,
+    );
+    client.create_engagement(
+        &String::from_str(&env, "ENG-PRIV-2"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Private Two"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &default_config(),
+    );
+    client.create_engagement(
+        &String::from_str(&env, "ENG-PUB-2"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Public Two"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &public_cfg,
+    );
+    client.create_engagement(
+        &String::from_str(&env, "ENG-PUB-3"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Public Three"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &public_cfg,
+    );
+
+    // Paginate across all pages (page_size=2) and collect unique public IDs.
+    let mut collected: Vec<String> = Vec::new(&env);
+    for page in 0u32..5u32 {
+        let page_ids = client.get_public_engagement_ids(&page, &2);
+        for i in 0..page_ids.len() {
+            let id = page_ids.get(i).unwrap();
+            // No duplicates across pages.
+            for j in 0..collected.len() {
+                assert_ne!(collected.get(j).unwrap(), id);
+            }
+            collected.push_back(id);
+        }
+        if page_ids.len() < 2 {
+            break;
+        }
+    }
+
+    assert_eq!(collected.len(), 3);
+    assert_eq!(collected.get(0).unwrap(), String::from_str(&env, "ENG-PUB-1"));
+    assert_eq!(collected.get(1).unwrap(), String::from_str(&env, "ENG-PUB-2"));
+    assert_eq!(collected.get(2).unwrap(), String::from_str(&env, "ENG-PUB-3"));
+
+    // Private engagements remain fully readable; visibility only affects the index.
+    let priv_id = String::from_str(&env, "ENG-PRIV-1");
+    let eng = client.get_engagement(&priv_id);
+    assert!(!eng.is_public);
+    assert_eq!(eng.id, priv_id);
+    let summary = client.get_engagement_summary(&priv_id);
+    assert_eq!(summary.id, priv_id);
+    assert_eq!(summary.total_amount, 1_000_000_000);
+}
+
+// ============================================================
+// #452 — engagement tag 10 / 32-char / empty limits + dedup
+// ============================================================
+
+fn tag_of_len(env: &Env, len: u32, fill: char) -> String {
+    let mut s = std::string::String::new();
+    for _ in 0..len {
+        s.push(fill);
+    }
+    String::from_str(env, &s)
+}
+
+#[test]
+fn test_create_engagement_max_tag_boundary_and_dedup() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    // Exactly 10 tags of exactly 32 characters each — the max allowed combination.
+    let mut tags = Vec::new(&env);
+    for i in 0u32..10u32 {
+        // Distinct 32-char tags so indexing covers all ten.
+        let mut s = std::string::String::new();
+        for _ in 0..31 {
+            s.push('a');
+        }
+        s.push(char::from_u32('0' as u32 + i).unwrap());
+        tags.push_back(String::from_str(&env, &s));
+    }
+    let mut cfg = default_config();
+    cfg.tags = Some(tags);
+
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TAGS-MAX"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Tagged Role"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &cfg,
+    );
+
+    let stored = client.get_tags(&String::from_str(&env, "ENG-TAGS-MAX"));
+    assert_eq!(stored.len(), 10);
+    assert_eq!(stored.get(0).unwrap().len(), 32);
+
+    // De-duplication: repeated tag indexes the engagement once.
+    let dup_tag = String::from_str(&env, "backend-rust");
+    let mut dup_cfg = default_config();
+    dup_cfg.tags = Some(vec![
+        &env,
+        dup_tag.clone(),
+        String::from_str(&env, "frontend"),
+        dup_tag.clone(),
+    ]);
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TAGS-DUP"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Dup Tags"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &dup_cfg,
+    );
+    assert_eq!(client.get_engagement_tag_count(&dup_tag), 1);
+}
+
+#[test]
+#[should_panic(expected = "TooManyTags")]
+fn test_create_engagement_eleven_tags_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let mut tags = Vec::new(&env);
+    for i in 0u32..11u32 {
+        tags.push_back(String::from_str(
+            &env,
+            &std::format!("tag-{}", i),
+        ));
+    }
+    let mut cfg = default_config();
+    cfg.tags = Some(tags);
+
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TAGS-11"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Too Many"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &cfg,
+    );
+}
+
+#[test]
+#[should_panic(expected = "TagTooLong")]
+fn test_create_engagement_tag_33_chars_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let mut cfg = default_config();
+    cfg.tags = Some(vec![&env, tag_of_len(&env, 33, 'x')]);
+
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TAGS-LONG"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Long Tag"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &cfg,
+    );
+}
+
+#[test]
+#[should_panic(expected = "TagEmpty")]
+fn test_create_engagement_empty_tag_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let mut cfg = default_config();
+    cfg.tags = Some(vec![&env, String::from_str(&env, "")]);
+
+    client.create_engagement(
+        &String::from_str(&env, "ENG-TAGS-EMPTY"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Empty Tag"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &cfg,
+    );
+}
+

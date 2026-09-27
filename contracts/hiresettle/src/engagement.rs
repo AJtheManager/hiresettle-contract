@@ -455,6 +455,34 @@ impl HireSettleContract {
             &recruiter_ids,
         );
 
+        // Issue #248 & #249: append engagement_id to per-tag indices.
+        // Count/length were already validated above; here we only need to
+        // de-duplicate so a repeated tag doesn't list the engagement twice
+        // in the same per-tag index.
+        if let Some(ref tags) = config.tags {
+            let mut seen_tags = Vec::new(&env);
+            for i in 0..tags.len() {
+                let t = tags.get(i).unwrap();
+                if !seen_tags.contains(&t) {
+                    seen_tags.push_back(t.clone());
+                    let mut tag_ids: Vec<String> = env
+                        .storage()
+                        .persistent()
+                        .get(&DataKey::TagEngagements(t.clone()))
+                        .unwrap_or_else(|| Vec::new(&env));
+                    tag_ids.push_back(engagement_id.clone());
+                    env.storage()
+                        .persistent()
+                        .set(&DataKey::TagEngagements(t.clone()), &tag_ids);
+                    env.storage().persistent().extend_ttl(
+                        &DataKey::TagEngagements(t.clone()),
+                        100_000,
+                        6_300_000,
+                    );
+                }
+            }
+        }
+
         env.storage().persistent().extend_ttl(
             &DataKey::RecruiterEngagements(recruiter.clone()),
             100_000,
