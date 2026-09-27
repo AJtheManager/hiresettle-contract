@@ -389,13 +389,7 @@ impl HireSettleContract {
                     duration,
                 ),
                 None => {
-                    Self::distribute_recruiter_payout(
-                        &env,
-                        &engagement,
-                        net_payment,
-                        &token_client,
-                        true,
-                    )
+                    Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client, true)
                 }
             }
         }

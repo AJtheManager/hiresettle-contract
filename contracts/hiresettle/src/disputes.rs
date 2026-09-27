@@ -171,11 +171,15 @@ impl HireSettleContract {
             panic!("milestone is not in disputed status");
         }
 
+        if Self::is_arbiter_recused(&env, &engagement_id, milestone_index, &arbiter) {
+            panic!("ArbiterRecused");
+        }
+
         // Issue #462: a dispute is decided by binary or split votes, never both.
         if env
             .storage()
             .persistent()
-            .has(&DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), milestone_index)))
+            .has(&DataKey2::ArbiterSplitVotes(engagement_id.clone(), milestone_index))
         {
             panic!("MixedVoteModes");
         }
@@ -205,7 +209,8 @@ impl HireSettleContract {
             record.reject_weight += weight;
         }
 
-        let total_weight = Self::total_arbiter_weight(&engagement);
+        let total_weight =
+            Self::active_arbiter_weight(&env, &engagement, &engagement_id, milestone_index);
         let quorum = engagement.quorum;
 
         env.events().publish(
@@ -259,6 +264,7 @@ impl HireSettleContract {
                     engagement_id.clone(),
                     milestone_index,
                 ));
+            Self::clear_recused_arbiters(&env, &engagement_id, milestone_index);
 
             env.events().publish(
                 (Symbol::new(&env, "dispute_resolved"), engagement_id.clone()),
@@ -367,7 +373,7 @@ impl HireSettleContract {
             engagement_id.clone(),
             milestone_index,
         ));
-        env.storage().persistent().remove(&DataKey::Ext(ExtKey::ArbiterSplitVotes(
+        env.storage().persistent().remove(&DataKey2::ArbiterSplitVotes(
             engagement_id.clone(),
             milestone_index,
         )));
@@ -385,6 +391,7 @@ impl HireSettleContract {
                 engagement_id.clone(),
                 milestone_index,
             ));
+        Self::clear_recused_arbiters(env, engagement_id, milestone_index);
 
         env.events().publish(
             (Symbol::new(env, "dispute_resolved"), engagement_id.clone()),
@@ -415,7 +422,7 @@ impl HireSettleContract {
     pub fn set_split_voting_enabled(env: Env, admin: Address, engagement_id: String, enabled: bool) {
         Self::assert_admin(&env, &admin);
         Self::get_engagement_internal(&env, &engagement_id);
-        let key = DataKey::Ext(ExtKey::SplitVotingEnabled(engagement_id.clone()));
+        let key = DataKey2::SplitVotingEnabled(engagement_id.clone());
         if enabled {
             env.storage().persistent().set(&key, &true);
             env.storage()
@@ -434,7 +441,7 @@ impl HireSettleContract {
     pub fn is_split_voting_enabled(env: Env, engagement_id: String) -> bool {
         env.storage()
             .persistent()
-            .get(&DataKey::Ext(ExtKey::SplitVotingEnabled(engagement_id)))
+            .get(&DataKey2::SplitVotingEnabled(engagement_id))
             .unwrap_or(false)
     }
 
@@ -512,7 +519,7 @@ impl HireSettleContract {
             panic!("MixedVoteModes");
         }
 
-        let split_key = DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), milestone_index));
+        let split_key = DataKey2::ArbiterSplitVotes(engagement_id.clone(), milestone_index);
         let mut record: ArbiterSplitVoteRecord =
             env.storage()
                 .persistent()
@@ -565,7 +572,7 @@ impl HireSettleContract {
                 &arbiter,
             );
             if withheld > 0 {
-                let withheld_key = DataKey::Ext(ExtKey::SplitWithheld(engagement_id.clone()));
+                let withheld_key = DataKey2::SplitWithheld(engagement_id.clone());
                 let prior: i128 = env.storage().persistent().get(&withheld_key).unwrap_or(0);
                 env.storage()
                     .persistent()
@@ -638,7 +645,7 @@ impl HireSettleContract {
     pub fn get_dispute_split_votes(env: Env, engagement_id: String, milestone_index: u32) -> Vec<u32> {
         env.storage()
             .persistent()
-            .get::<DataKey, ArbiterSplitVoteRecord>(&DataKey::Ext(ExtKey::ArbiterSplitVotes(
+            .get::<DataKey2, ArbiterSplitVoteRecord>(&DataKey2::ArbiterSplitVotes(
                 engagement_id,
                 milestone_index,
             )))
@@ -688,7 +695,7 @@ impl HireSettleContract {
             panic!("{}", ERR_UNAUTHORIZED);
         }
 
-        let key = DataKey::Ext(ExtKey::ArbiterVoteDelegate(engagement_id.clone(), arbiter.clone()));
+        let key = DataKey2::ArbiterVoteDelegate(engagement_id.clone(), arbiter.clone());
         match &delegate {
             Some(d) => {
                 let is_party = *d == engagement.company
@@ -704,7 +711,7 @@ impl HireSettleContract {
                         continue;
                     }
                     let existing: Option<Address> = env.storage().persistent().get(
-                        &DataKey::Ext(ExtKey::ArbiterVoteDelegate(engagement_id.clone(), other)),
+                        &DataKey2::ArbiterVoteDelegate(engagement_id.clone(), other),
                     );
                     if existing.as_ref() == Some(d) {
                         panic!("DelegateAlreadyAssigned");
@@ -735,7 +742,7 @@ impl HireSettleContract {
     ) -> Option<Address> {
         env.storage()
             .persistent()
-            .get(&DataKey::Ext(ExtKey::ArbiterVoteDelegate(engagement_id, arbiter)))
+            .get(&DataKey2::ArbiterVoteDelegate(engagement_id, arbiter))
     }
 
     // ----------------------------------------------------------
@@ -925,7 +932,7 @@ impl HireSettleContract {
         let escalated_at_key = DataKey::EscalatedAt(engagement_id.clone(), milestone_index);
         env.storage()
             .persistent()
-            .remove(&DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), milestone_index)));
+            .remove(&DataKey2::ArbiterSplitVotes(engagement_id.clone(), milestone_index));
 
         if approve {
             let payment = (engagement.total_amount * milestone.payment_percent as i128) / 100;
@@ -1166,7 +1173,7 @@ impl HireSettleContract {
         let vote_key = DataKey::ArbiterVotes(engagement_id.clone(), milestone_index);
         env.storage()
             .persistent()
-            .remove(&DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), milestone_index)));
+            .remove(&DataKey2::ArbiterSplitVotes(engagement_id.clone(), milestone_index));
 
         let payment = (engagement.total_amount * milestone.payment_percent as i128) / 100;
         engagement.released_amount += payment;
@@ -1383,7 +1390,7 @@ impl HireSettleContract {
             .ledger()
             .sequence()
             .saturating_add(DISPUTE_WINDOW_PROPOSAL_TTL_LEDGERS);
-        let key = DataKey::Ext(ExtKey::DisputeWindowProposal(engagement_id.clone()));
+        let key = DataKey2::DisputeWindowProposal(engagement_id.clone());
         env.storage().persistent().set(
             &key,
             &DisputeWindowProposal {
@@ -1430,7 +1437,7 @@ impl HireSettleContract {
             .unwrap_or_else(|| panic!("NoPendingDisputeWindowProposal"));
         Self::assert_dispute_window_counterparty(&env, &acceptor, &engagement, &proposal);
 
-        let override_key = DataKey::Ext(ExtKey::DisputeWindowOverride(engagement_id.clone()));
+        let override_key = DataKey2::DisputeWindowOverride(engagement_id.clone());
         env.storage()
             .persistent()
             .set(&override_key, &proposal.ledgers);
@@ -1439,7 +1446,7 @@ impl HireSettleContract {
             .extend_ttl(&override_key, 100_000, 6_300_000);
         env.storage()
             .persistent()
-            .remove(&DataKey::Ext(ExtKey::DisputeWindowProposal(engagement_id.clone())));
+            .remove(&DataKey2::DisputeWindowProposal(engagement_id.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "dispute_window_accepted"), engagement_id),
@@ -1470,7 +1477,7 @@ impl HireSettleContract {
 
         env.storage()
             .persistent()
-            .remove(&DataKey::Ext(ExtKey::DisputeWindowProposal(engagement_id.clone())));
+            .remove(&DataKey2::DisputeWindowProposal(engagement_id.clone()));
 
         env.events().publish(
             (Symbol::new(&env, "dispute_window_rejected"), engagement_id),
@@ -1496,7 +1503,7 @@ impl HireSettleContract {
     pub(crate) fn engagement_dispute_window_internal(env: &Env, engagement_id: &String) -> u32 {
         env.storage()
             .persistent()
-            .get(&DataKey::Ext(ExtKey::DisputeWindowOverride(engagement_id.clone())))
+            .get(&DataKey2::DisputeWindowOverride(engagement_id.clone()))
             .unwrap_or_else(|| Self::get_dispute_window(env.clone()))
     }
 
@@ -1507,7 +1514,7 @@ impl HireSettleContract {
         let proposal: DisputeWindowProposal = env
             .storage()
             .persistent()
-            .get(&DataKey::Ext(ExtKey::DisputeWindowProposal(engagement_id.clone())))?;
+            .get(&DataKey2::DisputeWindowProposal(engagement_id.clone()))?;
         if env.ledger().sequence() > proposal.expires_at_ledger {
             return None;
         }
@@ -1673,5 +1680,167 @@ impl HireSettleContract {
     // ----------------------------------------------------------
     // ISSUE #70 — ACTIVE DISPUTE COUNT
     // ----------------------------------------------------------
+
+    // ----------------------------------------------------------
+    // ISSUE #477 — ARBITER SELF-RECUSAL
+    // ----------------------------------------------------------
+
+    /// An arbiter with a conflict of interest steps aside from a specific
+    /// dispute. Reduces that dispute's effective arbiter count for reject-
+    /// quorum math only; approve quorum (`engagement.quorum`) is unchanged.
+    ///
+    /// # Panics
+    /// - `"unauthorized"` — caller is not on the panel
+    /// - `"milestone is not in disputed status"`
+    /// - `"already voted"` — arbiter has already cast a vote
+    /// - `"already recused"` — arbiter already recused from this dispute
+    pub fn recuse_arbiter(
+        env: Env,
+        arbiter: Address,
+        engagement_id: String,
+        milestone_index: u32,
+    ) {
+        Self::assert_not_paused(&env);
+        Self::assert_engagement_not_paused(&env, &engagement_id);
+        arbiter.require_auth();
+
+        let engagement = Self::get_engagement_internal(&env, &engagement_id);
+        if engagement.status != EngagementStatus::Active {
+            panic!("{}", ERR_ENGAGEMENT_NOT_ACTIVE);
+        }
+
+        let mut on_panel = false;
+        for i in 0..engagement.arbiters.len() {
+            if engagement.arbiters.get(i).unwrap() == arbiter {
+                on_panel = true;
+                break;
+            }
+        }
+        if !on_panel {
+            panic!("{}", ERR_UNAUTHORIZED);
+        }
+
+        let milestone = Self::get_milestone_or_panic(&engagement, milestone_index);
+        if milestone.status != MilestoneStatus::Disputed {
+            panic!("milestone is not in disputed status");
+        }
+
+        if Self::is_arbiter_recused(&env, &engagement_id, milestone_index, &arbiter) {
+            panic!("already recused");
+        }
+
+        let vote_key = DataKey::ArbiterVotes(engagement_id.clone(), milestone_index);
+        if let Some(record) = env
+            .storage()
+            .persistent()
+            .get::<DataKey, ArbiterVoteRecord>(&vote_key)
+        {
+            for i in 0..record.voted.len() {
+                if record.voted.get(i).unwrap() == arbiter {
+                    panic!("already voted");
+                }
+            }
+        }
+
+        let key = DataKey2::RecusedArbiters(engagement_id.clone(), milestone_index);
+        let mut recused: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env));
+        recused.push_back(arbiter.clone());
+        env.storage().persistent().set(&key, &recused);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 100_000, 6_300_000);
+
+        env.events().publish(
+            (Symbol::new(&env, "arbiter_recused"), engagement_id),
+            (milestone_index, arbiter),
+        );
+    }
+
+    /// Return addresses that have recused from this specific dispute.
+    pub fn get_recused_arbiters(
+        env: Env,
+        engagement_id: String,
+        milestone_index: u32,
+    ) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey2::RecusedArbiters(engagement_id, milestone_index))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    pub(crate) fn is_arbiter_recused(
+        env: &Env,
+        engagement_id: &String,
+        milestone_index: u32,
+        arbiter: &Address,
+    ) -> bool {
+        let recused: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey2::RecusedArbiters(
+                engagement_id.clone(),
+                milestone_index,
+            ))
+            .unwrap_or_else(|| Vec::new(env));
+        for i in 0..recused.len() {
+            if recused.get(i).unwrap() == *arbiter {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(crate) fn clear_recused_arbiters(
+        env: &Env,
+        engagement_id: &String,
+        milestone_index: u32,
+    ) {
+        env.storage()
+            .persistent()
+            .remove(&DataKey2::RecusedArbiters(
+                engagement_id.clone(),
+                milestone_index,
+            ));
+    }
+
+    /// Total arbiter weight excluding those who recused from this dispute.
+    /// Approve quorum is unchanged; only the reject denominator shrinks.
+    pub(crate) fn active_arbiter_weight(
+        env: &Env,
+        engagement: &Engagement,
+        engagement_id: &String,
+        milestone_index: u32,
+    ) -> u32 {
+        let recused: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey2::RecusedArbiters(
+                engagement_id.clone(),
+                milestone_index,
+            ))
+            .unwrap_or_else(|| Vec::new(env));
+        if recused.is_empty() {
+            return Self::total_arbiter_weight(engagement);
+        }
+        let mut total = 0u32;
+        for i in 0..engagement.arbiters.len() {
+            let addr = engagement.arbiters.get(i).unwrap();
+            let mut skipped = false;
+            for j in 0..recused.len() {
+                if recused.get(j).unwrap() == addr {
+                    skipped = true;
+                    break;
+                }
+            }
+            if !skipped {
+                total = total.saturating_add(Self::arbiter_weight(engagement, i));
+            }
+        }
+        total
+    }
 
 }

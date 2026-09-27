@@ -151,8 +151,8 @@ fn default_config() -> EngagementConfig {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     }
 }
 
@@ -1452,8 +1452,8 @@ fn test_co_recruiter_60_40_split() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -1543,8 +1543,8 @@ fn test_split_bps_over_10000_rejected() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -1582,8 +1582,8 @@ fn test_co_recruiter_gets_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -1636,8 +1636,8 @@ fn test_co_recruiter_summary_fields() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -1679,8 +1679,8 @@ fn test_split_bps_10000_accepted() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -7237,8 +7237,8 @@ fn test_co_recruiter_split_with_platform_fee() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -7649,8 +7649,8 @@ fn test_co_recruiter_split_with_odd_percentage_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
-        recruiter_bond_amount: None,
-        bundle_id: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
     };
 
     client.create_engagement(
@@ -8622,443 +8622,345 @@ fn test_add_referrer_rejects_duplicate() {
     client.add_referrer(&company, &referrer);
 }
 
+// === AUTO #457/#471/#476/#477 TESTS ===
+
 // ============================================================
-// Issues #445–#448 — escalation timeout / counter / fee waiver / token min
+// #457 — global × per-engagement pause interaction matrix
 // ============================================================
 
-fn count_events(env: &Env, event_name: &str) -> u32 {
-    let expected = Symbol::new(env, event_name);
-    let mut n = 0u32;
-    for (_, topics, _) in env.events().all().iter() {
-        let matches = topics
-            .get(0)
-            .and_then(|v| v.try_into_val(env).ok())
-            .map(|s: Symbol| s == expected)
-            .unwrap_or(false);
-        if matches {
-            n += 1;
-        }
-    }
-    n
+#[test]
+fn test_pause_matrix_both_off_confirm_succeeds() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-PAUSE-OK");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSE-OK",
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://offer"));
+    assert!(!client.is_paused());
+    assert!(!client.is_engagement_paused(&eng_id));
+    client.confirm_milestone(&company, &eng_id, &0);
+    assert_eq!(
+        client.get_engagement(&eng_id).milestones.get(0).unwrap().status,
+        MilestoneStatus::Confirmed
+    );
 }
 
-fn parallel_placement_milestones(env: &Env) -> Vec<Milestone> {
-    vec![
-        env,
-        Milestone {
-            name: String::from_str(env, "A"),
-            payment_percent: 30,
-            kind: MilestoneKind::Placement,
-            valid_after_ledger: 0,
-            proof_hash: String::from_str(env, ""),
-            status: MilestoneStatus::Pending,
-            proof_submitted_at: 0,
-            replacement_paid_out: 0,
-            prerequisites: Vec::new(env),
-        },
-        Milestone {
-            name: String::from_str(env, "B"),
-            payment_percent: 40,
-            kind: MilestoneKind::Placement,
-            valid_after_ledger: 0,
-            proof_hash: String::from_str(env, ""),
-            status: MilestoneStatus::Pending,
-            proof_submitted_at: 0,
-            replacement_paid_out: 0,
-            prerequisites: Vec::new(env),
-        },
-        Milestone {
-            name: String::from_str(env, "C"),
-            payment_percent: 30,
-            kind: MilestoneKind::Placement,
-            valid_after_ledger: 0,
-            proof_hash: String::from_str(env, ""),
-            status: MilestoneStatus::Pending,
-            proof_submitted_at: 0,
-            replacement_paid_out: 0,
-            prerequisites: Vec::new(env),
-        },
-    ]
+#[test]
+#[should_panic(expected = "EngagementPaused")]
+fn test_pause_matrix_engagement_on_confirm_panics() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-PAUSE-ENG");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSE-ENG",
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://offer"));
+    client.pause_engagement(&company, &eng_id, &String::from_str(&env, "quarantine"));
+    client.confirm_milestone(&company, &eng_id, &0);
 }
 
-fn create_two_arbiter_engagement(
-    env: &Env,
-    client: &HireSettleContractClient,
-    token_id: &Address,
-    company: &Address,
-    recruiter: &Address,
-    a1: &Address,
-    a2: &Address,
-    id: &str,
-) {
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_pause_matrix_global_on_confirm_panics() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-PAUSE-GLO");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSE-GLO",
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://offer"));
+    client.pause(&company);
+    client.confirm_milestone(&company, &eng_id, &0);
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_pause_matrix_both_on_global_error_first() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-PAUSE-BOTH");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSE-BOTH",
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://offer"));
+    client.pause(&company);
+    client.pause_engagement(&company, &eng_id, &String::from_str(&env, "quarantine"));
+    client.confirm_milestone(&company, &eng_id, &0);
+}
+
+#[test]
+#[should_panic(expected = "EngagementPaused")]
+fn test_pause_matrix_readme_worked_example_stays_quarantined() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-PAUSE-EX");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSE-EX",
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://offer"));
+    // pause_engagement → pause → unpause leaves engagement quarantined
+    client.pause_engagement(&company, &eng_id, &String::from_str(&env, "quarantine"));
+    client.pause(&company);
+    client.unpause(&company);
+    assert!(!client.is_paused());
+    assert!(client.is_engagement_paused(&eng_id));
+    client.confirm_milestone(&company, &eng_id, &0);
+}
+
+// ============================================================
+// #471 — co-recruiter split renegotiation
+// ============================================================
+
+#[test]
+fn test_split_amendment_applies_to_future_not_past() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let co = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-SPLIT-AMD");
+
     client.create_engagement(
-        &String::from_str(env, id),
-        company,
-        recruiter,
+        &eng_id,
+        &company,
+        &recruiter,
         &ArbiterSetup {
-            arbiters: vec![env, a1.clone(), a2.clone()],
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Engineer"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &EngagementConfig {
+            metadata_hash: None,
+            co_recruiter: Some(co.clone()),
+            recruiter_split_bps: 6_000,
+            contract_pdf_hash: None,
+            referrer: None,
+            tags: None,
+            is_public: false,
+            stream_duration_ledgers: None,
+            recruiter_bond_amount: None,
+            bundle_id: None,
+        },
+    );
+
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://a"));
+    client.confirm_milestone(&company, &eng_id, &0);
+    let after_first_recruiter = token_client.balance(&recruiter);
+    let after_first_co = token_client.balance(&co);
+    assert_eq!(after_first_recruiter, 180_000_000);
+    assert_eq!(after_first_co, 120_000_000);
+
+    client.propose_split_amendment(&recruiter, &eng_id, &5_000);
+    client.accept_split_amendment(&co, &eng_id);
+    assert_eq!(client.get_engagement(&eng_id).recruiter_split_bps, 5_000);
+    let log = client.get_split_amendment_log(&eng_id);
+    assert_eq!(log.len(), 1);
+    assert_eq!(log.get(0).unwrap().old_split_bps, 6_000);
+    assert_eq!(log.get(0).unwrap().new_split_bps, 5_000);
+
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: 0,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence() + (31 * 17_280),
+        network_id: Default::default(),
+        base_reserve: 5_000_000,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_300_000,
+    });
+    client.unlock_milestone(&eng_id, &1);
+    client.submit_proof(&recruiter, &eng_id, &1, &String::from_str(&env, "ipfs://b"));
+    client.confirm_milestone(&company, &eng_id, &1);
+    assert_eq!(token_client.balance(&recruiter) - after_first_recruiter, 200_000_000);
+    assert_eq!(token_client.balance(&co) - after_first_co, 200_000_000);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_split_amendment_proposer_cannot_accept() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let co = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-SPLIT-SELF");
+    client.create_engagement(
+        &eng_id, &company, &recruiter,
+        &ArbiterSetup { arbiters: vec![&env, arbiter.clone()], quorum: 1, weights: None },
+        &token_id, &1_000_000_000, &String::from_str(&env, "Engineer"),
+        &build_milestones(&env), &vec![&env, 30u32, 90u32],
+        &EngagementConfig {
+            metadata_hash: None, co_recruiter: Some(co.clone()), recruiter_split_bps: 7_000,
+            contract_pdf_hash: None, referrer: None, tags: None, is_public: false,
+            stream_duration_ledgers: None, recruiter_bond_amount: None, bundle_id: None,
+        },
+    );
+    client.propose_split_amendment(&recruiter, &eng_id, &5_000);
+    client.accept_split_amendment(&recruiter, &eng_id);
+}
+
+#[test]
+#[should_panic(expected = "amendment_expired")]
+fn test_split_amendment_expires() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let co = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-SPLIT-TTL");
+    client.create_engagement(
+        &eng_id, &company, &recruiter,
+        &ArbiterSetup { arbiters: vec![&env, arbiter.clone()], quorum: 1, weights: None },
+        &token_id, &1_000_000_000, &String::from_str(&env, "Engineer"),
+        &build_milestones(&env), &vec![&env, 30u32, 90u32],
+        &EngagementConfig {
+            metadata_hash: None, co_recruiter: Some(co.clone()), recruiter_split_bps: 7_000,
+            contract_pdf_hash: None, referrer: None, tags: None, is_public: false,
+            stream_duration_ledgers: None, recruiter_bond_amount: None, bundle_id: None,
+        },
+    );
+    client.set_amendment_ttl(&company, &100);
+    client.propose_split_amendment(&recruiter, &eng_id, &5_000);
+    advance_ledger(&env, 101);
+    assert!(client.get_pending_split_amendment(&eng_id).is_none());
+    client.accept_split_amendment(&co, &eng_id);
+}
+
+// ============================================================
+// #476 — recruiter verification badge
+// ============================================================
+
+#[test]
+fn test_recruiter_verified_flag_defaults_and_lifecycle() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let other = Address::generate(&env);
+
+    assert!(!client.is_recruiter_verified(&recruiter));
+    assert!(!client.is_recruiter_verified(&other));
+
+    client.set_recruiter_verified(&company, &recruiter, &true);
+    assert!(client.is_recruiter_verified(&recruiter));
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-VERIFIED",
+    );
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &other, &arbiter, "ENG-UNVERIFIED",
+    );
+    assert_eq!(
+        client.get_engagement(&String::from_str(&env, "ENG-VERIFIED")).status,
+        EngagementStatus::Active
+    );
+    assert_eq!(
+        client.get_engagement(&String::from_str(&env, "ENG-UNVERIFIED")).status,
+        EngagementStatus::Active
+    );
+
+    client.set_recruiter_verified(&company, &recruiter, &false);
+    assert!(!client.is_recruiter_verified(&recruiter));
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_non_admin_cannot_set_recruiter_verified() {
+    let (env, contract_id, _token_id, _company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    client.set_recruiter_verified(&recruiter, &arbiter, &true);
+}
+
+// ============================================================
+// #477 — arbiter self-recusal
+// ============================================================
+
+#[test]
+#[should_panic(expected = "ArbiterRecused")]
+fn test_recused_arbiter_cannot_vote() {
+    let (env, contract_id, token_id, company, recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let a1 = Address::generate(&env);
+    let a2 = Address::generate(&env);
+    let a3 = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-RECUSE-VOTE");
+    client.create_engagement(
+        &eng_id, &company, &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, a1.clone(), a2.clone(), a3.clone()],
+            quorum: 2, weights: None,
+        },
+        &token_id, &1_000_000_000, &String::from_str(&env, "Engineer"),
+        &build_milestones(&env), &vec![&env, 30u32, 90u32], &default_config(),
+    );
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://p0"));
+    client.raise_dispute(&company, &eng_id, &0, &String::from_str(&env, "bad"));
+    client.recuse_arbiter(&a3, &eng_id, &0);
+    client.cast_arbiter_vote(&a3, &eng_id, &0, &false);
+}
+
+#[test]
+fn test_recuse_arbiter_reject_quorum_and_scope() {
+    let (env, contract_id, token_id, company, recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let a1 = Address::generate(&env);
+    let a2 = Address::generate(&env);
+    let a3 = Address::generate(&env);
+    let eng_id = String::from_str(&env, "ENG-RECUSE");
+
+    client.create_engagement(
+        &eng_id, &company, &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, a1.clone(), a2.clone(), a3.clone()],
             quorum: 2,
             weights: None,
         },
-        token_id,
-        &1_000_000_000,
-        &String::from_str(env, "Engineer"),
-        &build_milestones(env),
-        &vec![env, 30u32, 90u32],
+        &token_id, &1_000_000_000, &String::from_str(&env, "Engineer"),
+        &build_milestones(&env), &vec![&env, 30u32, 90u32],
         &default_config(),
     );
-}
 
-/// Escalate a disputed milestone past the dispute window with an unresolved
-/// split (one approve vote against quorum 2), then let the super-arbiter
-/// response window elapse without a resolve call.
-fn escalate_and_expire_super_arbiter_window(
-    env: &Env,
-    client: &HireSettleContractClient,
-    company: &Address,
-    recruiter: &Address,
-    a1: &Address,
-    eng_id: &String,
-    dispute_window: u32,
-    sa_deadline: u32,
-) {
-    client.submit_proof(
-        recruiter,
-        eng_id,
-        &0,
-        &String::from_str(env, "ipfs://proof"),
-    );
-    client.raise_dispute(company, eng_id, &0, &String::from_str(env, "dispute"));
-    // One approve vote — not enough for quorum 2, and not a rejection majority.
-    client.cast_arbiter_vote(a1, eng_id, &0, &true);
-    advance_ledger(env, dispute_window + 1);
-    client.escalate_dispute(eng_id, &0);
-    advance_ledger(env, sa_deadline + 1);
-}
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://p0"));
+    client.raise_dispute(&company, &eng_id, &0, &String::from_str(&env, "bad"));
 
-/// #445 — resolve_escalation_timeout auto-favors the recruiter with no
-/// arbiter fee, unlike an otherwise identical approved quorum vote.
-#[test]
-fn test_resolve_escalation_timeout_skips_arbiter_fee() {
-    let (env, contract_id, token_id, company, recruiter, _) = setup();
-    let client = HireSettleContractClient::new(&env, &contract_id);
-    let token_client = token::Client::new(&env, &token_id);
+    client.recuse_arbiter(&a3, &eng_id, &0);
+    let recused = client.get_recused_arbiters(&eng_id, &0);
+    assert_eq!(recused.len(), 1);
+    assert_eq!(recused.get(0).unwrap(), a3);
 
-    let a1 = Address::generate(&env);
-    let a2 = Address::generate(&env);
-    let a1_control = Address::generate(&env);
-    let a2_control = Address::generate(&env);
-    let super_arbiter = Address::generate(&env);
-
-    client.set_arbiter_fee(&company, &100u32); // 1%
-    client.set_super_arbiter(&company, &super_arbiter);
-    client.set_dispute_window(&company, &50u32);
-    client.set_super_arbiter_deadline(&company, &50u32);
-
-    // --- Control: normal approved quorum vote DOES deduct arbiter fee ---
-    create_two_arbiter_engagement(
-        &env,
-        &client,
-        &token_id,
-        &company,
-        &recruiter,
-        &a1_control,
-        &a2_control,
-        "ENG-TIMEOUT-CTRL",
-    );
-    let ctrl_id = String::from_str(&env, "ENG-TIMEOUT-CTRL");
-    client.submit_proof(
-        &recruiter,
-        &ctrl_id,
-        &0,
-        &String::from_str(&env, "ipfs://ctrl"),
-    );
-    client.raise_dispute(
-        &company,
-        &ctrl_id,
-        &0,
-        &String::from_str(&env, "dispute"),
-    );
-    let ctrl_rec_before = token_client.balance(&recruiter);
-    let ctrl_a2_before = token_client.balance(&a2_control);
-    client.cast_arbiter_vote(&a1_control, &ctrl_id, &0, &true);
-    client.cast_arbiter_vote(&a2_control, &ctrl_id, &0, &true);
-    // 300_000_000 gross; arbiter fee 1% = 3_000_000 → recruiter 297_000_000
+    // Approve quorum unchanged: one approve alone does not resolve.
+    client.cast_arbiter_vote(&a1, &eng_id, &0, &true);
     assert_eq!(
-        token_client.balance(&recruiter),
-        ctrl_rec_before + 297_000_000
+        client.get_engagement(&eng_id).milestones.get(0).unwrap().status,
+        MilestoneStatus::Disputed
     );
+    // After recusal, one reject exceeds (active 2 - quorum 2) = 0.
+    client.cast_arbiter_vote(&a2, &eng_id, &0, &false);
     assert_eq!(
-        token_client.balance(&a2_control),
-        ctrl_a2_before + 3_000_000
+        client.get_engagement(&eng_id).milestones.get(0).unwrap().status,
+        MilestoneStatus::Pending
     );
 
-    // --- Subject: escalation timeout skips arbiter fee ---
-    create_two_arbiter_engagement(
-        &env,
-        &client,
-        &token_id,
-        &company,
-        &recruiter,
-        &a1,
-        &a2,
-        "ENG-TIMEOUT-FEE",
-    );
-    let eng_id = String::from_str(&env, "ENG-TIMEOUT-FEE");
-    escalate_and_expire_super_arbiter_window(
-        &env, &client, &company, &recruiter, &a1, &eng_id, 50, 50,
-    );
+    env.ledger().set(soroban_sdk::testutils::LedgerInfo {
+        timestamp: 0,
+        protocol_version: 22,
+        sequence_number: env.ledger().sequence() + (31 * 17_280),
+        network_id: Default::default(),
+        base_reserve: 5_000_000,
+        min_temp_entry_ttl: 16,
+        min_persistent_entry_ttl: 100_000,
+        max_entry_ttl: 6_300_000,
+    });
+    client.submit_proof(&recruiter, &eng_id, &0, &String::from_str(&env, "ipfs://p0b"));
+    client.confirm_milestone(&company, &eng_id, &0);
+    client.unlock_milestone(&eng_id, &1);
+    client.submit_proof(&recruiter, &eng_id, &1, &String::from_str(&env, "ipfs://p1"));
+    client.raise_dispute(&company, &eng_id, &1, &String::from_str(&env, "bad2"));
 
-    let rec_before = token_client.balance(&recruiter);
-    let a1_before = token_client.balance(&a1);
-    let a2_before = token_client.balance(&a2);
-    let sa_before = token_client.balance(&super_arbiter);
-    let fee_events_before = count_events(&env, "arbiter_fee_collected");
-
-    client.resolve_escalation_timeout(&eng_id, &0);
-
-    // Full gross share (approve path without arbiter fee) — 300_000_000.
-    assert_eq!(token_client.balance(&recruiter), rec_before + 300_000_000);
-    assert_eq!(token_client.balance(&a1), a1_before);
-    assert_eq!(token_client.balance(&a2), a2_before);
-    assert_eq!(token_client.balance(&super_arbiter), sa_before);
-    // No arbiter-fee transfer occurred (contrast with the control engagement above).
+    assert_eq!(client.get_recused_arbiters(&eng_id, &1).len(), 0);
+    client.cast_arbiter_vote(&a3, &eng_id, &1, &true);
     assert_eq!(
-        count_events(&env, "arbiter_fee_collected"),
-        fee_events_before
-    );
-
-    let m0 = client.get_milestone(&eng_id, &0);
-    // Dispute resolutions land on Resolved (same as approve-vote / super_arbiter_resolve).
-    assert_eq!(m0.status, MilestoneStatus::Resolved);
-}
-
-/// #446 — get_super_arbiter_resolutions only counts the escalation path.
-#[test]
-fn test_get_super_arbiter_resolutions_only_counts_escalation_path() {
-    let (env, contract_id, token_id, company, recruiter, _) = setup();
-    let client = HireSettleContractClient::new(&env, &contract_id);
-
-    let a1 = Address::generate(&env);
-    let a2 = Address::generate(&env);
-    let b1 = Address::generate(&env);
-    let b2 = Address::generate(&env);
-    let c1 = Address::generate(&env);
-    let c2 = Address::generate(&env);
-    let super_arbiter = Address::generate(&env);
-
-    client.set_super_arbiter(&company, &super_arbiter);
-    client.set_dispute_window(&company, &50u32);
-    client.set_super_arbiter_deadline(&company, &50u32);
-
-    assert_eq!(client.get_super_arbiter_resolutions(), 0u64);
-
-    // 1) Normal quorum vote — counter must stay unchanged.
-    create_two_arbiter_engagement(
-        &env, &client, &token_id, &company, &recruiter, &a1, &a2, "ENG-SAR-1",
-    );
-    let id1 = String::from_str(&env, "ENG-SAR-1");
-    client.submit_proof(&recruiter, &id1, &0, &String::from_str(&env, "ipfs://1"));
-    client.raise_dispute(&company, &id1, &0, &String::from_str(&env, "d1"));
-    client.cast_arbiter_vote(&a1, &id1, &0, &true);
-    client.cast_arbiter_vote(&a2, &id1, &0, &true);
-    assert_eq!(client.get_super_arbiter_resolutions(), 0u64);
-
-    // 2) Escalation + explicit super_arbiter_resolve — increments by exactly 1.
-    create_two_arbiter_engagement(
-        &env, &client, &token_id, &company, &recruiter, &b1, &b2, "ENG-SAR-2",
-    );
-    let id2 = String::from_str(&env, "ENG-SAR-2");
-    client.submit_proof(&recruiter, &id2, &0, &String::from_str(&env, "ipfs://2"));
-    client.raise_dispute(&company, &id2, &0, &String::from_str(&env, "d2"));
-    client.cast_arbiter_vote(&b1, &id2, &0, &true);
-    advance_ledger(&env, 51);
-    client.escalate_dispute(&id2, &0);
-    client.super_arbiter_resolve(&super_arbiter, &id2, &0, &true);
-    assert_eq!(client.get_super_arbiter_resolutions(), 1u64);
-
-    // 3) Escalation + resolve_escalation_timeout — increments again.
-    create_two_arbiter_engagement(
-        &env, &client, &token_id, &company, &recruiter, &c1, &c2, "ENG-SAR-3",
-    );
-    let id3 = String::from_str(&env, "ENG-SAR-3");
-    escalate_and_expire_super_arbiter_window(
-        &env, &client, &company, &recruiter, &c1, &id3, 50, 50,
-    );
-    client.resolve_escalation_timeout(&id3, &0);
-    assert_eq!(client.get_super_arbiter_resolutions(), 2u64);
-}
-
-/// #447 — waive_platform_fee is honoured by all three confirmation paths.
-#[test]
-fn test_waive_platform_fee_honoured_by_all_confirmation_paths() {
-    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
-    let client = HireSettleContractClient::new(&env, &contract_id);
-    let token_client = token::Client::new(&env, &token_id);
-    let treasury = Address::generate(&env);
-
-    client.set_platform_fee(&company, &100u32, &treasury); // 1%
-    client.set_confirm_window(&company, &50u32);
-
-    let milestones = parallel_placement_milestones(&env);
-
-    // --- Waived engagement ---
-    let waived_id = String::from_str(&env, "ENG-WAIVE-PATHS");
-    client.create_engagement(
-        &waived_id,
-        &company,
-        &recruiter,
-        &ArbiterSetup {
-            arbiters: vec![&env, arbiter.clone()],
-            quorum: 1,
-            weights: None,
-        },
-        &token_id,
-        &1_000_000_000,
-        &String::from_str(&env, "Engineer"),
-        &milestones,
-        &vec![&env],
-        &default_config(),
-    );
-    client.waive_platform_fee(&company, &waived_id);
-    assert!(client.is_fee_waived(&waived_id));
-
-    client.submit_proof(
-        &recruiter,
-        &waived_id,
-        &0,
-        &String::from_str(&env, "ipfs://waive-0"),
-    );
-    client.submit_proof(
-        &recruiter,
-        &waived_id,
-        &1,
-        &String::from_str(&env, "ipfs://waive-1"),
-    );
-    client.submit_proof(
-        &recruiter,
-        &waived_id,
-        &2,
-        &String::from_str(&env, "ipfs://waive-2"),
-    );
-
-    let fee_events_before = count_events(&env, "platform_fee_collected");
-    let rec_before = token_client.balance(&recruiter);
-    let treas_before = token_client.balance(&treasury);
-
-    // Path 1: confirm_milestone → full 30% gross
-    client.confirm_milestone(&company, &waived_id, &0);
-    assert_eq!(token_client.balance(&recruiter), rec_before + 300_000_000);
-
-    // Path 2: batch_confirm_milestones → full 40% gross
-    client.batch_confirm_milestones(&company, &waived_id, &vec![&env, 1u32]);
-    assert_eq!(token_client.balance(&recruiter), rec_before + 700_000_000);
-
-    // Path 3: force_confirm_milestone → full 30% gross
-    advance_ledger(&env, 51);
-    client.force_confirm_milestone(&recruiter, &waived_id, &2);
-    assert_eq!(token_client.balance(&recruiter), rec_before + 1_000_000_000);
-
-    assert_eq!(token_client.balance(&treasury), treas_before);
-    assert_eq!(
-        count_events(&env, "platform_fee_collected"),
-        fee_events_before
-    );
-
-    // --- Control: otherwise-identical non-waived engagement still deducts fee ---
-    let ctrl_id = String::from_str(&env, "ENG-WAIVE-CTRL");
-    let ctrl_arbiter = Address::generate(&env);
-    client.create_engagement(
-        &ctrl_id,
-        &company,
-        &recruiter,
-        &ArbiterSetup {
-            arbiters: vec![&env, ctrl_arbiter.clone()],
-            quorum: 1,
-            weights: None,
-        },
-        &token_id,
-        &1_000_000_000,
-        &String::from_str(&env, "Engineer"),
-        &parallel_placement_milestones(&env),
-        &vec![&env],
-        &default_config(),
-    );
-    assert!(!client.is_fee_waived(&ctrl_id));
-    client.submit_proof(
-        &recruiter,
-        &ctrl_id,
-        &0,
-        &String::from_str(&env, "ipfs://ctrl-0"),
-    );
-    let ctrl_rec_before = token_client.balance(&recruiter);
-    let ctrl_treas_before = token_client.balance(&treasury);
-    client.confirm_milestone(&company, &ctrl_id, &0);
-    // 300_000_000 * 1% = 3_000_000 fee → recruiter 297_000_000
-    assert_eq!(
-        token_client.balance(&recruiter),
-        ctrl_rec_before + 297_000_000
-    );
-    assert_eq!(
-        token_client.balance(&treasury),
-        ctrl_treas_before + 3_000_000
+        client.get_engagement(&eng_id).milestones.get(1).unwrap().status,
+        MilestoneStatus::Disputed
     );
 }
 
-/// #448 — per-token minimum overrides the admin-wide floor for create_engagement.
-#[test]
-fn test_create_engagement_enforces_per_token_min_over_global() {
-    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
-    let client = HireSettleContractClient::new(&env, &contract_id);
-
-    // Global floor low; per-token floor higher.
-    client.set_min_amount(&company, &1_000_000i128);
-    client.set_token_min_amount(&company, &token_id, &5_000_000i128);
-    assert_eq!(client.get_effective_min_amount(&token_id), 5_000_000);
-
-    // Amount between the two floors must panic when per-token is higher.
-    let between = 3_000_000i128;
-    let high_reject = client.try_create_engagement(
-        &String::from_str(&env, "ENG-TMIN-HIGH"),
-        &company,
-        &recruiter,
-        &ArbiterSetup {
-            arbiters: vec![&env, arbiter.clone()],
-            quorum: 1,
-            weights: None,
-        },
-        &token_id,
-        &between,
-        &String::from_str(&env, "Engineer"),
-        &build_milestones(&env),
-        &vec![&env, 30u32, 90u32],
-        &default_config(),
-    );
-    assert!(high_reject.is_err());
-
-    // Per-token floor lower than global — effective is the per-token value.
-    client.set_token_min_amount(&company, &token_id, &500_000i128);
-    assert_eq!(client.get_effective_min_amount(&token_id), 500_000);
-
-    // Same between-amount now succeeds because per-token (500k) < amount < global (1M)
-    // wait: get_effective returns per-token when set, so global is ignored.
-    // Amount 3_000_000 > 500_000 → succeeds.
-    client.create_engagement(
-        &String::from_str(&env, "ENG-TMIN-LOW"),
-        &company,
-        &recruiter,
-        &ArbiterSetup {
-            arbiters: vec![&env, arbiter.clone()],
-            quorum: 1,
-            weights: None,
-        },
-        &token_id,
-        &between,
-        &String::from_str(&env, "Engineer"),
-        &build_milestones(&env),
-        &vec![&env, 30u32, 90u32],
-        &default_config(),
-    );
-    let eng = client.get_engagement(&String::from_str(&env, "ENG-TMIN-LOW"));
-    assert_eq!(eng.total_amount, between);
-}

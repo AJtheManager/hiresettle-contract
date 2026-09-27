@@ -373,11 +373,11 @@ impl HireSettleContract {
                     env.storage().persistent().set(&vote_key, &record);
                 }
                 // Same seat migration for split votes (issue #462).
-                let split_key = DataKey::Ext(ExtKey::ArbiterSplitVotes(engagement_id.clone(), i));
+                let split_key = DataKey2::ArbiterSplitVotes(engagement_id.clone(), i);
                 if let Some(mut record) = env
                     .storage()
                     .persistent()
-                    .get::<DataKey, ArbiterSplitVoteRecord>(&split_key)
+                    .get::<DataKey2, ArbiterSplitVoteRecord>(&split_key)
                 {
                     for j in 0..record.voters.len() {
                         if record.voters.get(j).unwrap() == nomination.current {
@@ -395,13 +395,13 @@ impl HireSettleContract {
         // resolve to its own slot, so that delegation could never be used.
         env.storage()
             .persistent()
-            .remove(&DataKey::Ext(ExtKey::ArbiterVoteDelegate(
+            .remove(&DataKey2::ArbiterVoteDelegate(
                 engagement_id.clone(),
                 nomination.current.clone(),
             )));
         for i in 0..engagement.arbiters.len() {
             let other = engagement.arbiters.get(i).unwrap();
-            let key = DataKey::Ext(ExtKey::ArbiterVoteDelegate(engagement_id.clone(), other));
+            let key = DataKey2::ArbiterVoteDelegate(engagement_id.clone(), other);
             let delegate: Option<Address> = env.storage().persistent().get(&key);
             if delegate.as_ref() == Some(&nominee) {
                 env.storage().persistent().remove(&key);
