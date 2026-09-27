@@ -151,6 +151,9 @@ fn default_config() -> EngagementConfig {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     }
 }
 
@@ -1367,6 +1370,9 @@ fn test_metadata_hash_present() {
             tags: None,
             is_public: false,
             stream_duration_ledgers: None,
+            bundle_id: None,
+            recruiter_bond_amount: None,
+            fund_from_pool: false,
         },
     );
 
@@ -1422,6 +1428,9 @@ fn test_metadata_hash_empty_string_rejected() {
             tags: None,
             is_public: false,
             stream_duration_ledgers: None,
+            bundle_id: None,
+            recruiter_bond_amount: None,
+            fund_from_pool: false,
         },
     );
 }
@@ -1446,6 +1455,9 @@ fn test_co_recruiter_60_40_split() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -1535,6 +1547,9 @@ fn test_split_bps_over_10000_rejected() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -1572,6 +1587,9 @@ fn test_co_recruiter_gets_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -1624,6 +1642,9 @@ fn test_co_recruiter_summary_fields() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -1665,6 +1686,9 @@ fn test_split_bps_10000_accepted() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -3675,7 +3699,7 @@ fn test_only_admin_can_add_allowed_token() {
 //     let eng_id = String::from_str(&env, "ENG-BATCH");
 //     client.create_engagement(
 //         &eng_id, &company, &recruiter,
-//         &ArbiterSetup { arbiters: vec![&env, arbiter.clone()], quorum: 1 },
+//         &ArbiterSetup { arbiters: vec![&env, arbiter.clone()], quorum: 1, weights: None },
 //         &token_id, &1_000_000_000,
 //         &String::from_str(&env, "Job"), &milestones,
 //         &vec![&env], &None,
@@ -7221,6 +7245,9 @@ fn test_co_recruiter_split_with_platform_fee() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -7631,6 +7658,9 @@ fn test_co_recruiter_split_with_odd_percentage_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        bundle_id: None,
+        recruiter_bond_amount: None,
+        fund_from_pool: false,
     };
 
     client.create_engagement(
@@ -7982,6 +8012,7 @@ fn create_short_retention_engagement(
         &ArbiterSetup {
             arbiters: vec![env, arbiter.clone()],
             quorum: 1,
+                    weights: None,
         },
         token_id,
         &1_000_000_000,
@@ -8394,6 +8425,7 @@ fn build_arbiter_track_records(
         &ArbiterSetup {
             arbiters: vec![env, good.clone(), bad.clone()],
             quorum: 1,
+                    weights: None,
         },
         token_id,
         &1_000_000_000,
@@ -8598,4 +8630,320 @@ fn test_add_referrer_rejects_duplicate() {
 
     client.add_referrer(&company, &referrer);
     client.add_referrer(&company, &referrer);
+}
+
+// ============================================================
+// ISSUES #472–#475
+// ============================================================
+
+#[test]
+fn test_pool_deposit_create_withdraw_roundtrip() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+
+    let deposit = 5_000_000_000i128;
+    client.deposit_company_balance(&company, &token_id, &deposit);
+    assert_eq!(client.get_company_balance(&company, &token_id), deposit);
+
+    let mut config = default_config();
+    config.fund_from_pool = true;
+    let amount = 1_000_000_000i128;
+    client.create_engagement(
+        &String::from_str(&env, "POOL-1"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &amount,
+        &String::from_str(&env, "Pooled Role"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &config,
+    );
+
+    assert_eq!(client.get_company_balance(&company, &token_id), deposit - amount);
+    assert_eq!(token_client.balance(&contract_id), deposit); // deposit still held; engagement drew from pool accounting
+
+    let remainder = deposit - amount;
+    client.withdraw_company_balance(&company, &token_id, &remainder);
+    assert_eq!(client.get_company_balance(&company, &token_id), 0);
+}
+
+#[test]
+#[should_panic(expected = "InsufficientCompanyBalance")]
+fn test_pool_funded_create_insufficient_panics() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    client.deposit_company_balance(&company, &token_id, &500_000_000);
+    let before = client.get_company_balance(&company, &token_id);
+
+    let mut config = default_config();
+    config.fund_from_pool = true;
+    let _ = client.create_engagement(
+        &String::from_str(&env, "POOL-INSUF"),
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Too Big"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &config,
+    );
+    // unreachable — but if it somehow succeeded the balance must be untouched
+    let _ = before;
+}
+
+#[test]
+fn test_pool_insufficient_does_not_consume_balance() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    client.deposit_company_balance(&company, &token_id, &500_000_000);
+    assert_eq!(client.get_company_balance(&company, &token_id), 500_000_000);
+
+    let mut config = default_config();
+    config.fund_from_pool = true;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.create_engagement(
+            &String::from_str(&env, "POOL-SAFE"),
+            &company,
+            &recruiter,
+            &ArbiterSetup {
+                arbiters: vec![&env, arbiter.clone()],
+                quorum: 1,
+                weights: None,
+            },
+            &token_id,
+            &1_000_000_000,
+            &String::from_str(&env, "Too Big"),
+            &build_milestones(&env),
+            &vec![&env, 30u32, 90u32],
+            &config,
+        );
+    }));
+    assert!(result.is_err());
+    assert_eq!(client.get_company_balance(&company, &token_id), 500_000_000);
+}
+
+#[test]
+fn test_non_pool_funded_create_still_transfers() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+
+    let before = token_client.balance(&company);
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "POOL-OFF",
+    );
+    assert_eq!(token_client.balance(&company), before - 1_000_000_000);
+    assert_eq!(client.get_company_balance(&company, &token_id), 0);
+}
+
+#[test]
+fn test_cosigner_default_off_setters_apply_immediately() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let treasury = Address::generate(&env);
+
+    assert!(client.get_config_cosigner().is_none());
+    client.set_platform_fee(&company, &250, &treasury);
+    assert_eq!(client.get_platform_fee(), (250, treasury));
+}
+
+#[test]
+fn test_sensitive_setter_requires_cosigner_accept() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let cosigner = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let treasury2 = Address::generate(&env);
+
+    client.set_platform_fee(&company, &100, &treasury);
+    client.set_config_cosigner(&company, &Some(cosigner.clone()));
+    client.set_sensitive_functions(&company, &vec![&env, FN_SET_PLATFORM_FEE]);
+
+    client.set_platform_fee(&company, &250, &treasury2);
+    // Live value unchanged until cosigner accepts.
+    assert_eq!(client.get_platform_fee(), (100, treasury.clone()));
+
+    let pending = client.get_pending_config_change(&1u64).unwrap();
+    assert_eq!(pending.fn_id, FN_SET_PLATFORM_FEE);
+    assert_eq!(pending.u32_val, 250);
+
+    client.accept_config_change(&cosigner, &1u64);
+    assert_eq!(client.get_platform_fee(), (250, treasury2));
+}
+
+#[test]
+fn test_non_sensitive_setter_applies_with_cosigner() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let cosigner = Address::generate(&env);
+
+    client.set_config_cosigner(&company, &Some(cosigner));
+    // Only platform fee marked sensitive — min_amount stays immediate.
+    client.set_sensitive_functions(&company, &vec![&env, FN_SET_PLATFORM_FEE]);
+    client.set_min_amount(&company, &200_000);
+    assert_eq!(client.get_min_amount(), 200_000);
+}
+
+#[test]
+fn test_emergency_pause_threshold_and_duplicate() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+    let s3 = Address::generate(&env);
+
+    client.set_emergency_signers(&company, &vec![&env, s1.clone(), s2.clone(), s3.clone()], &2);
+    assert!(!client.is_paused());
+
+    client.cast_emergency_pause_vote(&s1, &None);
+    assert!(!client.is_paused());
+
+    client.cast_emergency_pause_vote(&s2, &None);
+    assert!(client.is_paused());
+
+    // unpause remains admin-only
+    client.unpause(&company);
+    assert!(!client.is_paused());
+}
+
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_emergency_duplicate_vote_rejected() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+
+    client.set_emergency_signers(&company, &vec![&env, s1.clone(), s2.clone()], &2);
+    client.cast_emergency_pause_vote(&s1, &None);
+    client.cast_emergency_pause_vote(&s1, &None);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_emergency_cannot_unpause() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let s1 = Address::generate(&env);
+    let s2 = Address::generate(&env);
+
+    client.set_emergency_signers(&company, &vec![&env, s1.clone(), s2.clone()], &2);
+    client.cast_emergency_pause_vote(&s1, &None);
+    client.cast_emergency_pause_vote(&s2, &None);
+    assert!(client.is_paused());
+    // Signer trying to unpause must fail.
+    client.unpause(&s1);
+}
+
+#[test]
+fn test_fee_rebate_default_zero_unchanged() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let treasury = Address::generate(&env);
+
+    assert_eq!(client.get_fee_rebate_bps(), 0);
+    client.set_platform_fee(&company, &250, &treasury); // 2.5%
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "REBATE-0",
+    );
+    client.submit_proof(
+        &recruiter,
+        &String::from_str(&env, "REBATE-0"),
+        &0,
+        &String::from_str(&env, "QmProof"),
+    );
+    client.confirm_milestone(&company, &String::from_str(&env, "REBATE-0"), &0);
+
+    // 30% of 1e9 = 3e8; 2.5% fee = 7_500_000
+    assert_eq!(token_client.balance(&treasury), 7_500_000);
+    assert_eq!(client.get_company_rebate_balance(&company, &token_id), 0);
+}
+
+#[test]
+fn test_fee_rebate_credits_and_offsets() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let treasury = Address::generate(&env);
+
+    client.set_platform_fee(&company, &1000.min(MAX_PLATFORM_FEE_BPS), &treasury); // use max 500 = 5%
+    client.set_platform_fee(&company, &500, &treasury); // 5%
+    client.set_fee_rebate_bps(&company, &2000.min(MAX_PLATFORM_FEE_BPS)); // wait max is 500
+    client.set_fee_rebate_bps(&company, &500); // 5% of fee goes to rebate
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "REBATE-1",
+    );
+    let id = String::from_str(&env, "REBATE-1");
+    client.submit_proof(&recruiter, &id, &0, &String::from_str(&env, "Qm1"));
+    client.confirm_milestone(&company, &id, &0);
+
+    // payment 300_000_000, fee 5% = 15_000_000
+    // rebate credit = 15_000_000 * 500 / 10000 = 750_000
+    // treasury gets 14_250_000
+    assert_eq!(token_client.balance(&treasury), 14_250_000);
+    assert_eq!(client.get_company_rebate_balance(&company, &token_id), 750_000);
+
+    // Unlock + confirm next milestone to consume rebate offset.
+    advance_ledger(&env, 30 * LEDGERS_PER_DAY);
+    client.unlock_milestone(&id, &1);
+    client.submit_proof(&recruiter, &id, &1, &String::from_str(&env, "Qm2"));
+    client.confirm_milestone(&company, &id, &1);
+
+    // payment 400_000_000, fee 5% = 20_000_000
+    // offset 750_000 from rebate → remaining 19_250_000
+    // credit = 19_250_000 * 500 / 10000 = 962_500
+    // treasury += 19_250_000 - 962_500 = 18_287_500
+    // total treasury = 14_250_000 + 18_287_500 = 32_537_500
+    // rebate balance = 0 - 750_000 + 962_500 = 962_500
+    assert_eq!(token_client.balance(&treasury), 32_537_500);
+    assert_eq!(client.get_company_rebate_balance(&company, &token_id), 962_500);
+}
+
+#[test]
+fn test_redeem_company_rebate() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let treasury = Address::generate(&env);
+
+    client.set_platform_fee(&company, &500, &treasury);
+    client.set_fee_rebate_bps(&company, &500);
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "REBATE-R",
+    );
+    let id = String::from_str(&env, "REBATE-R");
+    client.submit_proof(&recruiter, &id, &0, &String::from_str(&env, "Qm"));
+    client.confirm_milestone(&company, &id, &0);
+
+    let rebate = client.get_company_rebate_balance(&company, &token_id);
+    assert!(rebate > 0);
+    let before = token_client.balance(&company);
+    client.redeem_company_rebate(&company, &token_id, &rebate);
+    assert_eq!(client.get_company_rebate_balance(&company, &token_id), 0);
+    assert_eq!(token_client.balance(&company), before + rebate);
+}
+
+#[test]
+#[should_panic(expected = "InsufficientRebateBalance")]
+fn test_redeem_company_rebate_over_balance() {
+    let (env, contract_id, token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    client.redeem_company_rebate(&company, &token_id, &1);
 }

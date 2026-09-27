@@ -126,6 +126,7 @@ impl HireSettleContract {
             ArbiterSetup {
                 arbiters,
                 quorum: random_setup.quorum,
+                weights: None,
             },
             token,
             total_amount,

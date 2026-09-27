@@ -41,6 +41,10 @@ mod transfers;
 mod queries;
 mod helpers;
 mod arbiter_pool;
+mod bonds;
+mod ratings;
+mod payout;
+mod features;
 
 pub(crate) use constants::*;
 pub(crate) use errors::*;

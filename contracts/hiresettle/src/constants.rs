@@ -40,3 +40,16 @@ pub(crate) const DEFAULT_ARBITER_SELECTION_WEIGHT: u32 = 50;
 /// Average response time, in ledgers, at which an arbiter's speed score is
 /// halved in `get_arbiter_selection_weight` (issue #468). ~1 day.
 pub(crate) const ARBITER_RESPONSE_REFERENCE_LEDGERS: u64 = 17_280;
+/// TTL for a pending bilateral dispute-window proposal (issue #469).
+pub(crate) const DISPUTE_WINDOW_PROPOSAL_TTL_LEDGERS: u32 = 51_840;
+pub(crate) const MIN_RATING_STARS: u32 = 1;
+pub(crate) const MAX_RATING_STARS: u32 = 5;
+/// Default window for emergency pause votes to accumulate (issue #474).
+pub(crate) const DEFAULT_EMERGENCY_VOTE_WINDOW_LEDGERS: u32 = 1_728;
+/// Sensitive-setter function ids for cosigner gating (issue #473).
+pub(crate) const FN_SET_PLATFORM_FEE: u32 = 1;
+pub(crate) const FN_SET_TOKEN_ALLOWLIST_ENABLED: u32 = 2;
+pub(crate) const FN_SET_REFERRAL_DISCOUNT_BPS: u32 = 3;
+pub(crate) const FN_SET_ARBITER_FEE: u32 = 4;
+pub(crate) const FN_SET_MIN_AMOUNT: u32 = 5;
+pub(crate) const FN_SET_FEE_REBATE_BPS: u32 = 6;
