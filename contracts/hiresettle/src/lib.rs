@@ -44,6 +44,7 @@ mod arbiter_pool;
 mod payout;
 mod ratings;
 mod bonds;
+mod features;
 
 pub(crate) use constants::*;
 pub(crate) use errors::*;

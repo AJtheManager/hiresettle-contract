@@ -127,6 +127,10 @@ pub enum ConfigKey {
     /// TTL in ledgers for amendment / split-amendment proposals
     /// (default 17_280 ≈ 1 day).
     AmendmentTTL,
+    /// Portion of each platform fee credited as company rebate (issue #475).
+    FeeRebateBps,
+    /// Emergency pause vote window in ledgers (issue #474).
+    EmergencyVoteWindow,
 }
 /// Contract storage key space. Instance keys reset between transactions;
 /// persistent keys survive across ledgers.
@@ -314,4 +318,23 @@ pub enum DataKey2 {
     SplitAmendmentLog(String),
     /// Arbiters who have self-recused from a specific dispute (issue #477).
     RecusedArbiters(String, u32),
+    /// Per-company, per-token pooled escrow balance (issue #472).
+    CompanyBalance(Address, Address),
+    /// Whether an engagement was funded from the company pool (issue #472).
+    PoolFunded(String),
+    /// Optional second cosigner for sensitive admin setters (issue #473).
+    ConfigCosigner,
+    /// Admin-selected sensitive setter function ids (issue #473).
+    SensitiveFunctions,
+    /// Pending cosigner-gated config change by change_id (issue #473).
+    PendingConfigChange(u64),
+    /// Monotonic counter for pending config change ids (issue #473).
+    NextConfigChangeId,
+    /// Emergency M-of-N signer set and threshold (issue #474).
+    EmergencySigners,
+    /// Emergency pause vote tally; empty string = global pause (issue #474).
+    EmergencyVotes(String),
+    /// Per-company, per-token redeemable fee rebate balance (issue #475).
+    CompanyRebate(Address, Address),
 }
+

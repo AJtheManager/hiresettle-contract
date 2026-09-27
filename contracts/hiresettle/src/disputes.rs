@@ -324,17 +324,12 @@ impl HireSettleContract {
 
         let token_client = token::Client::new(env, &engagement.token);
         if platform_fee_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &platform_fee.treasury,
-                &platform_fee_amount,
-            );
-            env.events().publish(
-                (
-                    Symbol::new(env, "platform_fee_collected"),
-                    engagement_id.clone(),
-                ),
-                (milestone_index, platform_fee_amount, platform_fee.treasury),
+            Self::collect_platform_fee(
+                env,
+                engagement,
+                engagement_id,
+                milestone_index,
+                platform_fee_amount,
             );
         }
         if arbiter_fee_amount > 0 {
@@ -959,17 +954,12 @@ impl HireSettleContract {
 
             let token_client = token::Client::new(&env, &engagement.token);
             if platform_fee_amount > 0 {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &platform_fee.treasury,
-                    &platform_fee_amount,
-                );
-                env.events().publish(
-                    (
-                        Symbol::new(&env, "platform_fee_collected"),
-                        engagement_id.clone(),
-                    ),
-                    (milestone_index, platform_fee_amount, platform_fee.treasury),
+                Self::collect_platform_fee(
+                    &env,
+                    &engagement,
+                    &engagement_id,
+                    milestone_index,
+                    platform_fee_amount,
                 );
             }
             if arbiter_fee_amount > 0 {
@@ -1191,17 +1181,12 @@ impl HireSettleContract {
 
         let token_client = token::Client::new(&env, &engagement.token);
         if platform_fee_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &platform_fee.treasury,
-                &platform_fee_amount,
-            );
-            env.events().publish(
-                (
-                    Symbol::new(&env, "platform_fee_collected"),
-                    engagement_id.clone(),
-                ),
-                (milestone_index, platform_fee_amount, platform_fee.treasury),
+            Self::collect_platform_fee(
+                &env,
+                &engagement,
+                &engagement_id,
+                milestone_index,
+                platform_fee_amount,
             );
         }
         Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client, false);
@@ -1601,17 +1586,12 @@ impl HireSettleContract {
 
         let token_client = token::Client::new(&env, &engagement.token);
         if fee_amount > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &platform_fee.treasury,
-                &fee_amount,
-            );
-            env.events().publish(
-                (
-                    Symbol::new(&env, "platform_fee_collected"),
-                    engagement_id.clone(),
-                ),
-                (milestone_index, fee_amount, platform_fee.treasury),
+            Self::collect_platform_fee(
+                &env,
+                &engagement,
+                &engagement_id,
+                milestone_index,
+                fee_amount,
             );
         }
         Self::distribute_recruiter_payout(&env, &engagement, net_payment, &token_client, true);

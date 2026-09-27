@@ -344,8 +344,15 @@ impl HireSettleContract {
             resolved_milestones.push_back(m);
         }
 
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&company, &env.current_contract_address(), &total_amount);
+        // Issue #472: draw from the company pool when requested; otherwise
+        // perform a fresh token transfer as before.
+        if config.fund_from_pool {
+            Self::debit_company_pool(&env, &company, &token, total_amount);
+            Self::mark_pool_funded(&env, &engagement_id);
+        } else {
+            let token_client = token::Client::new(&env, &token);
+            token_client.transfer(&company, &env.current_contract_address(), &total_amount);
+        }
 
         // Issue #459: escrow the optional recruiter bond alongside the company's funding.
         if let Some(bond_amount) = config.recruiter_bond_amount {
@@ -799,12 +806,8 @@ impl HireSettleContract {
         }
 
         let refund = engagement.total_amount - engagement.released_amount;
-        let token_client = token::Client::new(&env, &engagement.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &engagement.company,
-            &refund,
-        );
+        // Issue #472: pool-funded engagements refund to the pool by default.
+        Self::refund_company_escrow(&env, &engagement, &engagement_id, refund);
 
         let old_engagement_status = engagement.status.clone();
         engagement.status = EngagementStatus::Cancelled;

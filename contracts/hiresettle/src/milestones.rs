@@ -366,17 +366,12 @@ impl HireSettleContract {
 
             let token_client = token::Client::new(&env, &engagement.token);
             if fee_amount > 0 {
-                token_client.transfer(
-                    &env.current_contract_address(),
-                    &platform_fee.treasury,
-                    &fee_amount,
-                );
-                env.events().publish(
-                    (
-                        Symbol::new(&env, "platform_fee_collected"),
-                        engagement_id.clone(),
-                    ),
-                    (milestone_index, fee_amount, platform_fee.treasury),
+                Self::collect_platform_fee(
+                    &env,
+                    &engagement,
+                    &engagement_id,
+                    milestone_index,
+                    fee_amount,
                 );
             }
             match engagement.stream_duration_ledgers {
