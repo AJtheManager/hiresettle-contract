@@ -40,9 +40,16 @@ pub(crate) const DEFAULT_ARBITER_SELECTION_WEIGHT: u32 = 50;
 /// Average response time, in ledgers, at which an arbiter's speed score is
 /// halved in `get_arbiter_selection_weight` (issue #468). ~1 day.
 pub(crate) const ARBITER_RESPONSE_REFERENCE_LEDGERS: u64 = 17_280;
-/// TTL for a pending bilateral dispute-window proposal (issue #469).
-pub(crate) const DISPUTE_WINDOW_PROPOSAL_TTL_LEDGERS: u32 = 51_840;
+/// TTL for a pending dispute-window override proposal (issue #469). ~1 day.
+pub(crate) const DISPUTE_WINDOW_PROPOSAL_TTL_LEDGERS: u32 = 17_280;
+/// Default TTL for amendment / split-amendment proposals (~1 day).
+pub(crate) const DEFAULT_AMENDMENT_TTL_LEDGERS: u32 = 17_280;
+/// FIFO cap on per-engagement split amendment log entries (issue #471).
+pub(crate) const MAX_AMENDMENT_LOG_ENTRIES: u32 = 20;
+
+/// Minimum stars accepted by `rate_recruiter` (issue #470).
 pub(crate) const MIN_RATING_STARS: u32 = 1;
+/// Maximum stars accepted by `rate_recruiter` (issue #470).
 pub(crate) const MAX_RATING_STARS: u32 = 5;
 /// Default window for emergency pause votes to accumulate (issue #474).
 pub(crate) const DEFAULT_EMERGENCY_VOTE_WINDOW_LEDGERS: u32 = 1_728;

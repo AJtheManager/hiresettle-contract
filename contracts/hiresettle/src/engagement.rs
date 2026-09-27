@@ -862,6 +862,224 @@ impl HireSettleContract {
     // ENGAGEMENT VISIBILITY (issue #364)
     // ----------------------------------------------------------
 
+    // ----------------------------------------------------------
+    // ISSUE #471 — CO-RECRUITER SPLIT AMENDMENT
+    // ----------------------------------------------------------
 
+    /// Propose a change to `engagement.recruiter_split_bps`. Caller must be the
+    /// primary recruiter or the co-recruiter. The other of the two must accept.
+    ///
+    /// # Panics
+    /// - `"ContractPaused"` / `"EngagementPaused"`
+    /// - `"engagement is not active"`
+    /// - `"no co_recruiter"` — engagement has no co-recruiter
+    /// - `"InvalidSplitBps"` — `new_split_bps > 10_000`
+    /// - `"unauthorized"` — caller is neither recruiter nor co-recruiter
+    pub fn propose_split_amendment(
+        env: Env,
+        proposer: Address,
+        engagement_id: String,
+        new_split_bps: u32,
+    ) {
+        Self::assert_not_paused(&env);
+        Self::assert_engagement_not_paused(&env, &engagement_id);
+        proposer.require_auth();
+
+        if new_split_bps > FULL_SPLIT_BPS {
+            panic!("InvalidSplitBps");
+        }
+
+        let engagement = Self::get_engagement_internal(&env, &engagement_id);
+        if engagement.status != EngagementStatus::Active {
+            panic!("{}", ERR_ENGAGEMENT_NOT_ACTIVE);
+        }
+        let co = engagement
+            .co_recruiter
+            .clone()
+            .unwrap_or_else(|| panic!("no co_recruiter"));
+
+        let proposed_by_recruiter = if proposer == engagement.recruiter {
+            true
+        } else if proposer == co {
+            false
+        } else {
+            panic!("{}", ERR_UNAUTHORIZED);
+        };
+
+        let ttl = Self::get_amendment_ttl(env.clone());
+        let now = env.ledger().sequence();
+        let proposal = SplitAmendmentProposal {
+            proposer: proposer.clone(),
+            proposed_by_recruiter,
+            new_split_bps,
+            proposed_at_ledger: now,
+            expires_at_ledger: now.saturating_add(ttl),
+        };
+        let key = DataKey2::SplitAmendmentProposal(engagement_id.clone());
+        env.storage().persistent().set(&key, &proposal);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 100_000, 6_300_000);
+
+        env.events().publish(
+            (
+                Symbol::new(&env, "split_amendment_proposed"),
+                engagement_id,
+            ),
+            (proposer, new_split_bps, proposal.expires_at_ledger),
+        );
+    }
+
+    /// Counterparty accepts a pending split amendment. Updates
+    /// `recruiter_split_bps` for all future milestone payouts.
+    pub fn accept_split_amendment(env: Env, acceptor: Address, engagement_id: String) {
+        Self::assert_not_paused(&env);
+        Self::assert_engagement_not_paused(&env, &engagement_id);
+        acceptor.require_auth();
+
+        let mut engagement = Self::get_engagement_internal(&env, &engagement_id);
+        if engagement.status != EngagementStatus::Active {
+            panic!("{}", ERR_ENGAGEMENT_NOT_ACTIVE);
+        }
+
+        let key = DataKey2::SplitAmendmentProposal(engagement_id.clone());
+        let proposal: SplitAmendmentProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("no pending amendment proposal"));
+
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            env.storage().persistent().remove(&key);
+            env.events().publish(
+                (
+                    Symbol::new(&env, "split_amendment_rejected"),
+                    engagement_id.clone(),
+                ),
+                (acceptor.clone(), String::from_str(&env, "expired")),
+            );
+            panic!("amendment_expired");
+        }
+
+        Self::assert_split_amendment_counterparty(&engagement, &acceptor, &proposal);
+
+        let old = engagement.recruiter_split_bps;
+        engagement.recruiter_split_bps = proposal.new_split_bps;
+        engagement.last_activity_ledger = env.ledger().sequence();
+        env.storage()
+            .persistent()
+            .set(&DataKey::Engagement(engagement_id.clone()), &engagement);
+        Self::extend_engagement_ttl(&env, &engagement_id);
+
+        let entry = SplitAmendmentEntry {
+            proposer: proposal.proposer.clone(),
+            old_split_bps: old,
+            new_split_bps: proposal.new_split_bps,
+            ledger: env.ledger().sequence(),
+        };
+        Self::append_split_amendment_log(&env, &engagement_id, entry);
+        env.storage().persistent().remove(&key);
+
+        env.events().publish(
+            (
+                Symbol::new(&env, "split_amendment_accepted"),
+                engagement_id,
+            ),
+            (acceptor, old, proposal.new_split_bps),
+        );
+    }
+
+    /// Counterparty rejects a pending split amendment without changing the split.
+    pub fn reject_split_amendment(env: Env, rejector: Address, engagement_id: String) {
+        Self::assert_not_paused(&env);
+        Self::assert_engagement_not_paused(&env, &engagement_id);
+        rejector.require_auth();
+
+        let engagement = Self::get_engagement_internal(&env, &engagement_id);
+        let key = DataKey2::SplitAmendmentProposal(engagement_id.clone());
+        let proposal: SplitAmendmentProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("no pending amendment proposal"));
+
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            env.storage().persistent().remove(&key);
+            panic!("amendment_expired");
+        }
+
+        Self::assert_split_amendment_counterparty(&engagement, &rejector, &proposal);
+        env.storage().persistent().remove(&key);
+
+        env.events().publish(
+            (
+                Symbol::new(&env, "split_amendment_rejected"),
+                engagement_id,
+            ),
+            (rejector, String::from_str(&env, "declined")),
+        );
+    }
+
+    /// Return the pending split amendment, or `None` if absent/expired.
+    pub fn get_pending_split_amendment(
+        env: Env,
+        engagement_id: String,
+    ) -> Option<SplitAmendmentProposal> {
+        let proposal: SplitAmendmentProposal = env
+            .storage()
+            .persistent()
+            .get(&DataKey2::SplitAmendmentProposal(engagement_id))?;
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            return None;
+        }
+        Some(proposal)
+    }
+
+    /// Return the accepted split-amendment history for an engagement (oldest first).
+    pub fn get_split_amendment_log(
+        env: Env,
+        engagement_id: String,
+    ) -> Vec<SplitAmendmentEntry> {
+        env.storage()
+            .persistent()
+            .get(&DataKey2::SplitAmendmentLog(engagement_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    fn assert_split_amendment_counterparty(
+        engagement: &Engagement,
+        caller: &Address,
+        proposal: &SplitAmendmentProposal,
+    ) {
+        let co = engagement
+            .co_recruiter
+            .as_ref()
+            .unwrap_or_else(|| panic!("no co_recruiter"));
+        let is_ok = if proposal.proposed_by_recruiter {
+            caller == co
+        } else {
+            caller == &engagement.recruiter
+        };
+        if !is_ok {
+            panic!("{}", ERR_UNAUTHORIZED);
+        }
+    }
+
+    fn append_split_amendment_log(env: &Env, engagement_id: &String, entry: SplitAmendmentEntry) {
+        let key = DataKey2::SplitAmendmentLog(engagement_id.clone());
+        let mut log: Vec<SplitAmendmentEntry> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(env));
+        if log.len() >= MAX_AMENDMENT_LOG_ENTRIES {
+            log.remove(0);
+        }
+        log.push_back(entry);
+        env.storage().persistent().set(&key, &log);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 100_000, 6_300_000);
+    }
 
 }
