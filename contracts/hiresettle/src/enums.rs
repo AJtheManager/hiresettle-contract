@@ -315,3 +315,33 @@ pub enum DataKey2 {
     /// Arbiters who have self-recused from a specific dispute (issue #477).
     RecusedArbiters(String, u32),
 }
+
+/// Overflow storage key space for variants that would push [`DataKey`] past
+/// soroban_sdk's 50-case union limit (`ScSpecUdtUnionV0`).
+#[contracttype]
+pub enum DataKey2 {
+    /// Per-dispute split-vote tally for (engagement_id, milestone_index) (issue #462).
+    ArbiterSplitVotes(String, u32),
+    /// Optional vote delegate for (engagement_id, arbiter) (issue #463).
+    ArbiterVoteDelegate(String, Address),
+    /// Per-engagement dispute-window override in ledgers (issue #469).
+    DisputeWindowOverride(String),
+    /// Pending dispute-window override proposal (issue #469).
+    DisputeWindowProposal(String),
+    /// Whether split voting is enabled for an engagement (issue #462).
+    SplitVotingEnabled(String),
+    /// Amount withheld from a split-vote resolution pending claim (issue #462).
+    SplitWithheld(String),
+    /// Recruiter collateral bond for an engagement (issue #459).
+    RecruiterBond(String),
+    /// Aggregated star-rating summary for a recruiter (issue #470).
+    RecruiterRating(Address),
+    /// Set once an engagement has been rated (issue #470).
+    EngagementRated(String),
+    /// Preferred payout-token SAC for a recruiter (issue #458).
+    RecruiterPayoutToken(Address),
+    /// Shared arbiter panel registered under a bundle id (issue #464).
+    Bundle(String),
+    /// Ordered list of engagement IDs belonging to a bundle (issue #464).
+    BundleEngagements(String),
+}

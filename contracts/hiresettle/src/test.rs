@@ -11,6 +11,9 @@ use soroban_sdk::{
 // TEST HELPERS
 // ============================================================
 
+/// Minimal contract WASM used by issue #456 execute_upgrade success path.
+const UPGRADE_DUMMY_WASM: &[u8] = include_bytes!("../testdata/upgrade_dummy.wasm");
+
 fn setup() -> (Env, Address, Address, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
@@ -3276,7 +3279,7 @@ fn test_get_engagements_by_company_insertion_order() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
@@ -3377,7 +3380,7 @@ fn test_get_engagements_first_page_ten() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
@@ -3425,7 +3428,7 @@ fn test_get_engagements_by_recruiter_insertion_order() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
