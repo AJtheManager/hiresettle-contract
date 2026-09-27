@@ -300,6 +300,37 @@ pub struct EngagementConfig {
     /// milestone's net payout linearly over `n` ledgers, claimable via
     /// `claim_streamed_payout`. Must be non-zero if provided.
     pub stream_duration_ledgers: Option<u32>,
+    /// Optional recruiter collateral bond locked at creation (issue #459).
+    /// `None` means no bond; `Some(amount)` escrows that amount from the
+    /// recruiter in addition to the company escrow.
+    pub recruiter_bond_amount: Option<i128>,
+    /// Optional engagement-bundle id (issue #464). When set, the engagement
+    /// is registered under the named shared arbiter panel.
+    pub bundle_id: Option<String>,
+}
+/// Recruiter collateral bond escrowed at engagement creation (issue #459).
+#[contracttype]
+#[derive(Clone)]
+pub struct RecruiterBond {
+    /// Bond principal locked from the recruiter, in token smallest units.
+    pub amount: i128,
+    /// Whether any forfeit condition has already been applied.
+    pub forfeited: bool,
+    /// Whether the bond has been fully settled (returned / forfeited).
+    pub settled: bool,
+    /// Milestone indices whose disputes resolved against the recruiter.
+    pub rejected_milestones: Vec<u32>,
+}
+/// Shared arbiter panel registered under a bundle id (issue #464).
+#[contracttype]
+#[derive(Clone)]
+pub struct EngagementBundle {
+    /// Company that registered the bundle; only this address may add members.
+    pub company: Address,
+    /// Shared arbiter panel applied to member engagements.
+    pub arbiters: Vec<Address>,
+    /// Quorum required on the shared panel.
+    pub quorum: u32,
 }
 /// Vesting record for a streamed milestone payout (issue #466), stored under
 /// `DataKey::StreamedPayout(engagement_id, milestone_index)`.

@@ -11,6 +11,9 @@ use soroban_sdk::{
 // TEST HELPERS
 // ============================================================
 
+/// Minimal contract WASM used by issue #456 execute_upgrade success path.
+const UPGRADE_DUMMY_WASM: &[u8] = include_bytes!("../testdata/upgrade_dummy.wasm");
+
 fn setup() -> (Env, Address, Address, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
@@ -151,6 +154,8 @@ fn default_config() -> EngagementConfig {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+        recruiter_bond_amount: None,
+        bundle_id: None,
     }
 }
 
@@ -1367,6 +1372,8 @@ fn test_metadata_hash_present() {
             tags: None,
             is_public: false,
             stream_duration_ledgers: None,
+        recruiter_bond_amount: None,
+        bundle_id: None,
         },
     );
 
@@ -1422,6 +1429,8 @@ fn test_metadata_hash_empty_string_rejected() {
             tags: None,
             is_public: false,
             stream_duration_ledgers: None,
+        recruiter_bond_amount: None,
+        bundle_id: None,
         },
     );
 }
@@ -1446,6 +1455,8 @@ fn test_co_recruiter_60_40_split() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -1535,6 +1546,8 @@ fn test_split_bps_over_10000_rejected() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -1572,6 +1585,8 @@ fn test_co_recruiter_gets_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -1624,6 +1639,8 @@ fn test_co_recruiter_summary_fields() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -1665,6 +1682,8 @@ fn test_split_bps_10000_accepted() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -3260,7 +3279,7 @@ fn test_get_engagements_by_company_insertion_order() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
@@ -3361,7 +3380,7 @@ fn test_get_engagements_first_page_ten() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
@@ -3409,7 +3428,7 @@ fn test_get_engagements_by_recruiter_insertion_order() {
             &ArbiterSetup {
                 arbiters: vec![&env, arbiter.clone()],
                 quorum: 1,
-                weights: None,
+            weights: None,
             },
             &token_id,
             &1_000_000_000,
@@ -7221,6 +7240,8 @@ fn test_co_recruiter_split_with_platform_fee() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -7631,6 +7652,8 @@ fn test_co_recruiter_split_with_odd_percentage_remainder() {
         tags: None,
         is_public: false,
         stream_duration_ledgers: None,
+    recruiter_bond_amount: None,
+    bundle_id: None,
     };
 
     client.create_engagement(
@@ -7982,6 +8005,7 @@ fn create_short_retention_engagement(
         &ArbiterSetup {
             arbiters: vec![env, arbiter.clone()],
             quorum: 1,
+            weights: None,
         },
         token_id,
         &1_000_000_000,
@@ -8394,6 +8418,7 @@ fn build_arbiter_track_records(
         &ArbiterSetup {
             arbiters: vec![env, good.clone(), bad.clone()],
             quorum: 1,
+            weights: None,
         },
         token_id,
         &1_000_000_000,
@@ -8598,4 +8623,215 @@ fn test_add_referrer_rejects_duplicate() {
 
     client.add_referrer(&company, &referrer);
     client.add_referrer(&company, &referrer);
+}
+
+
+// ============================================================
+// Issues #453–#456 — referral removal, recruiter pagination,
+// arbiter claim replay, execute_upgrade timelock
+// ============================================================
+
+/// Issue #453: removing a referrer stops the discount on later confirmations
+/// while leaving already-paid milestone fees/payouts unchanged.
+#[test]
+fn test_remove_referrer_stops_future_discounts() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let treasury = Address::generate(&env);
+    let referrer = Address::generate(&env);
+
+    client.set_platform_fee(&company, &250u32, &treasury); // 2.5%
+    client.set_referral_discount_bps(&company, &100u32); // 1%
+    client.add_referrer(&company, &referrer);
+
+    let eng_id = String::from_str(&env, "ENG-REF-RM");
+    let mut config = default_config();
+    config.referrer = Some(referrer.clone());
+    client.create_engagement(
+        &eng_id,
+        &company,
+        &recruiter,
+        &ArbiterSetup {
+            arbiters: vec![&env, arbiter.clone()],
+            quorum: 1,
+            weights: None,
+        },
+        &token_id,
+        &1_000_000_000,
+        &String::from_str(&env, "Senior Engineer"),
+        &build_milestones(&env),
+        &vec![&env, 30u32, 90u32],
+        &config,
+    );
+
+    // Milestone 0 (30%): discount applies → effective 150 bps.
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://m0"),
+    );
+    client.confirm_milestone(&company, &eng_id, &0);
+
+    let m0_gross = 300_000_000i128;
+    let m0_fee = m0_gross * 150 / 10_000; // 4_500_000
+    let m0_net = m0_gross - m0_fee;
+    assert_eq!(m0_fee, 4_500_000);
+    assert_eq!(token_client.balance(&treasury), m0_fee);
+    assert_eq!(token_client.balance(&recruiter), m0_net);
+    assert_eq!(client.get_total_released(&eng_id), m0_gross);
+
+    let treasury_after_m0 = token_client.balance(&treasury);
+    let recruiter_after_m0 = token_client.balance(&recruiter);
+    let released_after_m0 = client.get_total_released(&eng_id);
+
+    // Remove referrer — future confirmations charge the full rate.
+    client.remove_referrer(&company, &referrer);
+    assert_eq!(client.get_referrer_discount_bps(&referrer), 0);
+
+    advance_ledger(&env, 31 * 17_280);
+    client.unlock_milestone(&eng_id, &1);
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &1,
+        &String::from_str(&env, "ipfs://m1"),
+    );
+    client.confirm_milestone(&company, &eng_id, &1);
+
+    let m1_gross = 400_000_000i128;
+    let m1_fee_full = m1_gross * 250 / 10_000; // 10_000_000 — no discount
+    let m1_net = m1_gross - m1_fee_full;
+    assert_eq!(m1_fee_full, 10_000_000);
+
+    // Past (m0) payout/fee untouched; m1 charged at full rate.
+    assert_eq!(token_client.balance(&treasury), treasury_after_m0 + m1_fee_full);
+    assert_eq!(token_client.balance(&recruiter), recruiter_after_m0 + m1_net);
+    assert_eq!(
+        client.get_total_released(&eng_id),
+        released_after_m0 + m1_gross
+    );
+    assert_eq!(treasury_after_m0, m0_fee);
+    assert_eq!(recruiter_after_m0, m0_net);
+}
+
+/// Issue #454: recruiter-side pagination boundary — page size that does not
+/// evenly divide N returns every ID exactly once and an empty final page.
+#[test]
+fn test_get_engagements_by_recruiter_pagination_boundary() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let ids = [
+        "ENG-RPAGE-00",
+        "ENG-RPAGE-01",
+        "ENG-RPAGE-02",
+        "ENG-RPAGE-03",
+        "ENG-RPAGE-04",
+        "ENG-RPAGE-05",
+        "ENG-RPAGE-06",
+        "ENG-RPAGE-07",
+        "ENG-RPAGE-08",
+        "ENG-RPAGE-09",
+    ];
+    for id in ids.iter() {
+        create_standard_engagement(&env, &client, &token_id, &company, &recruiter, &arbiter, id);
+    }
+
+    let page_size = 3u32;
+    let mut seen: std::vec::Vec<String> = std::vec::Vec::new();
+    let mut page = 0u32;
+    loop {
+        let batch = client.get_engagements_by_recruiter(&recruiter, &page, &page_size);
+        if batch.len() == 0 {
+            break;
+        }
+        for i in 0..batch.len() {
+            let id = batch.get(i).unwrap();
+            assert!(
+                !seen.iter().any(|s| s == &id),
+                "duplicate engagement id in recruiter pagination"
+            );
+            seen.push(id);
+        }
+        page += 1;
+        assert!(page < 20, "pagination did not terminate");
+    }
+
+    // Final page after the last partial page is empty.
+    let final_page = client.get_engagements_by_recruiter(&recruiter, &page, &page_size);
+    assert_eq!(final_page.len(), 0);
+
+    assert_eq!(seen.len() as u32, 10);
+    for expected in ids.iter() {
+        let e = String::from_str(&env, expected);
+        assert!(seen.iter().any(|s| s == &e), "missing {expected}");
+    }
+}
+
+/// Issue #455: once a nominee claims the arbiter slot, replay by the same
+/// address or an unrelated third party is rejected (no pending nomination).
+#[test]
+fn test_claim_arbiter_rejects_replay_after_claim() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let eng_id = String::from_str(&env, "ENG-CLAIM-REPLAY");
+    create_standard_engagement(
+        &env,
+        &client,
+        &token_id,
+        &company,
+        &recruiter,
+        &arbiter,
+        "ENG-CLAIM-REPLAY",
+    );
+
+    let nominee = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    client.nominate_arbiter_successor(&arbiter, &eng_id, &nominee);
+    client.claim_arbiter(&nominee, &eng_id);
+
+    let eng = client.get_engagement(&eng_id);
+    assert_eq!(eng.arbiters.get(0).unwrap(), nominee);
+
+    let replay = client.try_claim_arbiter(&nominee, &eng_id);
+    assert!(replay.is_err(), "former nominee must not reclaim after success");
+
+    let third = client.try_claim_arbiter(&stranger, &eng_id);
+    assert!(third.is_err(), "unrelated address must not claim after success");
+}
+
+/// Issue #456: execute_upgrade panics one ledger before the lock, succeeds
+/// permissionlessly at execute_after_ledger, and clears the pending proposal.
+#[test]
+fn test_execute_upgrade_timelock_permissionless_and_clears() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    // Tiny valid WASM (empty module) is not a Soroban contract; upload a
+    // re-install of the native contract via a second register + hash from
+    // a built dummy when available. Fallback: use uploaded bytes of a
+    // minimal contract compiled into this test binary.
+    let wasm_hash = env.deployer().upload_contract_wasm(UPGRADE_DUMMY_WASM);
+
+    client.set_upgrade_lock_duration(&company, &500u32);
+    client.propose_upgrade(&company, &wasm_hash);
+
+    // sequence starts at 100; execute_after = 100 + 500 = 600.
+    advance_ledger(&env, 499); // current = 599 — one short
+    let early = client.try_execute_upgrade();
+    assert!(early.is_err(), "execute_upgrade must fail before lock");
+
+    // Advance exactly to execute_after_ledger (600).
+    advance_ledger(&env, 1);
+    assert_eq!(env.ledger().sequence(), 600);
+
+    // Permissionless: no admin auth on execute_upgrade — any caller works.
+    client.execute_upgrade();
+    assert!(has_event(&env, "upgrade_executed"));
+
+    let again = client.try_execute_upgrade();
+    assert!(again.is_err(), "second execute must fail with no pending upgrade");
 }
