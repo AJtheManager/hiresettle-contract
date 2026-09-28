@@ -67,6 +67,106 @@ cargo test
 
 ## Overview
 
+### Module Architecture
+
+The contract is organized into focused feature modules, all re-exported from `lib.rs`. The diagram below shows the module-to-module dependency flow (coarse-grained, function-level dependencies omitted).
+
+```mermaid
+flowchart TD
+    %% Foundational layer (no internal deps)
+    constants["constants<br/>(numeric defaults)"]
+    errors["errors<br/>(panic messages)"]
+
+    %% Core types & storage keys
+    enums["enums<br/>(MilestoneStatus, EngagementStatus,<br/>DataKey, ConfigKey, ExtKey, DataKey2)"]
+    types["types<br/>(Engagement, Milestone, ArbiterVoteRecord,<br/>PlatformFee, FeeTier, ...)"]
+
+    %% Internal utilities used by all feature modules
+    helpers["helpers<br/>(storage access, auth guards,<br/>fee resolution, validation, TTL)"]
+
+    %% Feature modules (alphabetical)
+    admin["admin<br/>(init, config setters, pause, upgrade)"]
+    engagement["engagement<br/>(create, lifecycle, top-up)"]
+    milestones["milestones<br/>(unlock, proof, confirm, batch, force)"]
+    disputes["disputes<br/>(raise, vote, escalate, super-arbiter)"]
+    transfers["transfers<br/>(cosigners, role transfer)"]
+    queries["queries<br/>(read-only getters)"]
+    arbiter_pool["arbiter_pool<br/>(pool mgmt, random panel draw)"]
+    payout["payout<br/>(swap adapter, token preference)"]
+    ratings["ratings<br/>(star ratings, summaries)"]
+    bonds["bonds<br/>(collateral bonds, bundles)"]
+    features["features<br/>(pooled escrow, emergency pause, rebate)"]
+
+    %% Dependency edges
+    constants --> helpers
+    errors --> helpers
+    enums --> types
+    enums --> helpers
+    types --> helpers
+    constants --> admin
+    errors --> admin
+    helpers --> admin
+    types --> admin
+    enums --> admin
+
+    constants --> engagement
+    errors --> engagement
+    helpers --> engagement
+    types --> engagement
+    enums --> engagement
+
+    constants --> milestones
+    errors --> milestones
+    helpers --> milestones
+    types --> milestones
+    enums --> milestones
+
+    errors --> disputes
+    helpers --> disputes
+    types --> disputes
+    enums --> disputes
+
+    helpers --> transfers
+    types --> transfers
+    enums --> transfers
+
+    helpers --> queries
+    types --> queries
+    enums --> queries
+
+    constants --> arbiter_pool
+    helpers --> arbiter_pool
+    types --> arbiter_pool
+    enums --> arbiter_pool
+
+    types --> payout
+    enums --> payout
+
+    helpers --> ratings
+    types --> ratings
+    enums --> ratings
+
+    helpers --> bonds
+    types --> bonds
+    enums --> bonds
+
+    constants --> features
+    helpers --> features
+    types --> features
+    enums --> features
+
+    %% Styling
+    classDef foundational fill:#f5f5f5,stroke:#999,stroke-width:1px;
+    classDef core fill:#e8f4fd,stroke:#2196f3,stroke-width:2px;
+    classDef internal fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
+    classDef feature fill:#e8f5e9,stroke:#4caf50,stroke-width:1px;
+
+    class constants,errors foundational;
+    class enums,types core;
+    class helpers internal;
+    class admin,engagement,milestones,disputes,transfers,queries,arbiter_pool,payout,ratings,bonds,features feature;
+```
+
 ## Glossary
 
 - **Engagement**: An agreement or project contract initiated between parties on the platform.
