@@ -9773,3 +9773,145 @@ fn test_create_engagement_empty_tag_rejected() {
     );
 }
 
+
+// ============================================================
+// ESCROW TOP-UP, PROOF VALIDATION, PAUSE AND PROGRESS QUERIES
+// ============================================================
+
+#[test]
+fn test_top_up_escrow_increases_total_and_balance() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-TOPUP",
+    );
+    let eng_id = String::from_str(&env, "ENG-TOPUP");
+
+    client.top_up_escrow(&company, &eng_id, &250_000_000);
+
+    let eng = client.get_engagement(&eng_id);
+    assert_eq!(eng.total_amount, 1_250_000_000);
+    assert_eq!(eng.released_amount, 0);
+    assert_eq!(client.get_escrow_balance(&eng_id), 1_250_000_000);
+    assert_eq!(token_client.balance(&contract_id), 1_250_000_000);
+    assert_eq!(
+        token_client.balance(&company),
+        500_000_000_000 - 1_250_000_000
+    );
+    assert!(has_event(&env, "escrow_topped_up"));
+}
+
+#[test]
+#[should_panic(expected = "amount must be greater than zero")]
+fn test_top_up_escrow_zero_amount_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-TOPUP-0",
+    );
+
+    client.top_up_escrow(&company, &String::from_str(&env, "ENG-TOPUP-0"), &0);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_top_up_escrow_by_stranger_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-TOPUP-X",
+    );
+
+    let stranger = Address::generate(&env);
+    client.top_up_escrow(
+        &stranger,
+        &String::from_str(&env, "ENG-TOPUP-X"),
+        &100_000_000,
+    );
+}
+
+#[test]
+#[should_panic(expected = "InvalidProofHash")]
+fn test_submit_proof_empty_hash_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-EMPTY-PROOF",
+    );
+
+    client.submit_proof(
+        &recruiter,
+        &String::from_str(&env, "ENG-EMPTY-PROOF"),
+        &0,
+        &String::from_str(&env, ""),
+    );
+}
+
+#[test]
+#[should_panic(expected = "ContractPaused")]
+fn test_submit_proof_blocked_while_contract_paused() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PAUSED",
+    );
+
+    // `setup` initialises the contract with `company` as admin.
+    client.pause(&company);
+    assert!(client.is_paused());
+
+    client.submit_proof(
+        &recruiter,
+        &String::from_str(&env, "ENG-PAUSED"),
+        &0,
+        &String::from_str(&env, "ipfs://offer-letter"),
+    );
+}
+
+#[test]
+fn test_unlock_progress_and_statuses_track_unlocks() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-PROGRESS",
+    );
+    let eng_id = String::from_str(&env, "ENG-PROGRESS");
+
+    assert_eq!(client.get_unlock_progress(&eng_id), (1, 3));
+    let statuses = client.get_all_milestone_statuses(&eng_id);
+    assert_eq!(statuses.len(), 3);
+    assert_eq!(statuses.get(0).unwrap(), MilestoneStatus::Pending);
+    assert_eq!(statuses.get(1).unwrap(), MilestoneStatus::Locked);
+    assert_eq!(statuses.get(2).unwrap(), MilestoneStatus::Locked);
+    assert!(client.ledgers_until_unlock(&eng_id, &1) > 0);
+
+    advance_ledger(&env, 31 * 17_280);
+    assert_eq!(client.ledgers_until_unlock(&eng_id, &1), 0);
+    client.unlock_milestone(&eng_id, &1);
+
+    assert_eq!(client.get_unlock_progress(&eng_id), (2, 3));
+    let statuses = client.get_all_milestone_statuses(&eng_id);
+    assert_eq!(statuses.get(1).unwrap(), MilestoneStatus::Pending);
+    assert_eq!(statuses.get(2).unwrap(), MilestoneStatus::Locked);
+}
+
+#[test]
+#[should_panic(expected = "engagement already exists")]
+fn test_create_engagement_duplicate_id_rejected() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-DUP",
+    );
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-DUP",
+    );
+}
