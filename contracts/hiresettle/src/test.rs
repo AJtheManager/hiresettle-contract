@@ -7098,6 +7098,105 @@ fn test_unknown_wallet_cannot_submit_proof_without_recruiter_cosigner() {
 }
 
 #[test]
+fn test_company_cosigner_can_confirm_milestone() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+
+    create_standard_engagement(
+        &env,
+        &client,
+        &token_id,
+        &company,
+        &recruiter,
+        &arbiter,
+        "ENG-CO-COSIGN-CONFIRM",
+    );
+
+    let company_cosigner = Address::generate(&env);
+    client.set_company_cosigner(&company, &company_cosigner);
+
+    let eng_id = String::from_str(&env, "ENG-CO-COSIGN-CONFIRM");
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://proof"),
+    );
+    client.confirm_milestone(&company_cosigner, &eng_id, &0);
+
+    let m0 = client.get_milestone(&eng_id, &0);
+    assert_eq!(m0.status, MilestoneStatus::Confirmed);
+    assert_eq!(token_client.balance(&recruiter), 300_000_000);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_stranger_cannot_confirm_milestone_when_company_cosigner_set() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env,
+        &client,
+        &token_id,
+        &company,
+        &recruiter,
+        &arbiter,
+        "ENG-CO-COSIGN-STRANGER",
+    );
+
+    let company_cosigner = Address::generate(&env);
+    client.set_company_cosigner(&company, &company_cosigner);
+
+    let eng_id = String::from_str(&env, "ENG-CO-COSIGN-STRANGER");
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://proof"),
+    );
+
+    // Registering a cosigner authorizes that one address, not every caller.
+    let stranger = Address::generate(&env);
+    client.confirm_milestone(&stranger, &eng_id, &0);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_reregistering_company_cosigner_revokes_previous_cosigner() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    create_standard_engagement(
+        &env,
+        &client,
+        &token_id,
+        &company,
+        &recruiter,
+        &arbiter,
+        "ENG-CO-COSIGN-REREG",
+    );
+
+    let old_cosigner = Address::generate(&env);
+    let new_cosigner = Address::generate(&env);
+    client.set_company_cosigner(&company, &old_cosigner);
+    client.set_company_cosigner(&company, &new_cosigner);
+    assert_eq!(client.get_company_cosigner(&company), Some(new_cosigner));
+
+    let eng_id = String::from_str(&env, "ENG-CO-COSIGN-REREG");
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://proof"),
+    );
+
+    // The replaced cosigner no longer has company authority.
+    client.confirm_milestone(&old_cosigner, &eng_id, &0);
+}
+
+#[test]
 fn test_escrow_callback_checkpoint_disabled_by_default() {
     let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
     let client = HireSettleContractClient::new(&env, &contract_id);

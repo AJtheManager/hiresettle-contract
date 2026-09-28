@@ -1245,6 +1245,8 @@ dashboard render a list view without one round-trip per row.
 | `get_company_active_count` | `company: Address` | `u32` |
 | `get_engagement_ids_by_status` | `status: EngagementStatus`, `page: u32`, `page_size: u32` | `Vec<String>` |
 | `get_engagement_count_by_status` | `status: EngagementStatus` | `u32` |
+| `get_engagements_by_amount_range` | `min_amount: i128`, `max_amount: i128`, `page: u32`, `page_size: u32` | `Vec<String>` |
+| `get_engagement_count_by_amount` | `min_amount: i128`, `max_amount: i128` | `u32` |
 
 `get_engagement_ids_by_status` paginates the **filtered** result, so page 0 always
 holds the first `page_size` matches regardless of how many non-matching
@@ -1267,6 +1269,20 @@ back empty instead of precomputing a page count
 engagements change status between calls). Results reflect each engagement's
 status at call time, and index entries whose engagement record has expired
 from storage are skipped rather than returned stale.
+
+`get_engagements_by_amount_range` works the same way, filtering on each
+engagement's `total_amount` instead of its status. The range
+`[min_amount, max_amount]` is inclusive on both ends, so
+`get_engagements_by_amount_range(1_000, 1_000, 0, 50)` returns engagements of
+exactly `1_000`. Pagination follows the rules above: `page` is 0-indexed over
+the **filtered** matches, a `page_size` of `0` returns an empty vec, and a page
+past the last match comes back empty. `get_engagement_count_by_amount` returns
+the total number of matches for the same range and can size a pagination loop.
+Both functions scan the full engagement index, share its coverage caveat for
+engagements created before the index existed, and skip expired records. Both
+panic with `"InvalidAmountRange"` when `min_amount > max_amount`; the paginated
+query checks `page_size == 0` first, so a zero page size returns an empty vec
+even for an inverted range.
 
 #### Amendment Queries
 
