@@ -531,26 +531,120 @@ pub struct PlatformFee {
 
 ### `DataKey`
 
-```rust
-pub enum DataKey {
-    Engagement(String),              // full engagement record by ID (persistent)
-    Admin,                           // current admin address (instance)
-    PendingArbiter(String),          // pending arbiter succession nomination
-    PlatformFee,                     // bps + treasury config (persistent)
-    FeeTiers,                        // Vec<FeeTier> size brackets (persistent)
-    Paused,                          // pause-guard bool (persistent)
-    PendingAdmin,                    // nominated admin successor (persistent)
-    ProofCooldown,                   // min ledgers between resubmissions (instance)
-    LastProofAt(String, u32),        // ledger of last proof submission
-    ArbiterVotes(String, u32),       // running vote tally for a dispute
-    AmendmentProposal(String, u32),  // active amendment proposal
-    AmendmentLog(String, u32),       // amendment history entries
-    AmendmentTTL,                    // proposal expiry duration (persistent)
-    // … additional keys for counts, allowlist, timeouts, etc.
-}
-```
+Contract storage is keyed by three `#[contracttype]` enums, all defined in
+`contracts/hiresettle/src/enums.rs`. Soroban caps a contract-type union at 50
+variants, so `DataKey` holds the original keys, admin-tunable scalars are
+nested under `DataKey::Config(ConfigKey)`, and newer features use `DataKey2`.
 
-Contract storage key space enumerating all persistent and instance-stored values. Instance keys reset between transactions; persistent keys survive across ledgers.
+"Instance" keys live in the contract instance entry and share its TTL.
+"Persistent" keys are separate ledger entries, each with its own TTL.
+
+#### `DataKey` (43 variants)
+
+| Variant | Storage | Holds |
+|---|---|---|
+| `Engagement(engagement_id)` | Persistent | Full `Engagement` record |
+| `Admin` | Instance | Current admin address |
+| `PendingArbiter(engagement_id)` | Persistent | Pending arbiter succession nomination |
+| `PlatformFee` | Persistent | Base platform fee: bps and treasury |
+| `Paused` | Persistent | Global pause flag |
+| `PendingAdmin` | Persistent | Nominated admin successor |
+| `ProposedRecruiterTransfer(engagement_id)` | Persistent | Proposed new recruiter awaiting company acceptance (#44) |
+| `LastProofAt(engagement_id, milestone_index)` | Persistent | Ledger of the last proof submission, for the resubmission cooldown |
+| `ArbiterVotes(engagement_id, milestone_index)` | Persistent | Running arbiter vote tally for a dispute |
+| `EngagementCount` | Instance | Total engagements ever created (#34) |
+| `CompanyEngagements(company)` | Persistent | Company's engagement IDs, in creation order (#35) |
+| `RecruiterEngagements(recruiter)` | Persistent | Recruiter's engagement IDs, in creation order (#36) |
+| `AllowedTokens` | Persistent | Token allowlist (#26) |
+| `AllowlistEnabled` | Persistent | Whether the token allowlist is enforced (#26) |
+| `DisputeReason(engagement_id, milestone_index)` | Persistent | Dispute reason string (#50) |
+| `ReplacementReason(engagement_id, replacement_index)` | Persistent | Reason code for a replacement request, indexed from 0 (#51) |
+| `ReplacementCount(engagement_id)` | Persistent | Replacements requested so far; the next `replacement_index` (#51) |
+| `Version` | Persistent | Contract version label (#16) |
+| `PendingUpgrade` | Instance | Pending WASM upgrade proposal (#69) |
+| `AdminRenounced` | Instance | Set once the admin role has been permanently renounced (#59) |
+| `CompanyActiveCount(company)` | Persistent | Company's currently active (non-terminal) engagements |
+| `CompanyCosigner(company)` | Persistent | Cosigner allowed to act for the company (#254) |
+| `RecruiterCosigner(recruiter)` | Persistent | Cosigner allowed to act for the recruiter (#257) |
+| `FeeTiers` | Persistent | `Vec<FeeTier>` size-based fee brackets (#250) |
+| `SuperArbiter` | Instance | Super-arbiter address for escalated disputes (#246) |
+| `DisputeRaisedAt(engagement_id, milestone_index)` | Persistent | Ledger the dispute was raised, for the dispute window (#246) |
+| `EscalatedDispute(engagement_id, milestone_index)` | Persistent | Whether the dispute was escalated to the super-arbiter (#246) |
+| `TagEngagements(tag)` | Persistent | Engagement IDs carrying a tag (#248, #249) |
+| `DueSoonNotified(engagement_id, milestone_index)` | — | Declared for the once-only `milestone_due_soon` event (#241); not currently read or written |
+| `EngagementPaused(engagement_id)` | Persistent | Per-engagement quarantine flag, independent of `Paused` (#239) |
+| `EngagementPauseReason(engagement_id)` | Persistent | Last reason given to `pause_engagement`; kept after unpause (#327) |
+| `AllEngagements` | Persistent | Every engagement ID ever created; backs `get_engagement_ids_by_status` (#237) |
+| `Referrers` | Persistent | Recognised referrer addresses (#251) |
+| `Config(ConfigKey)` | Instance or persistent | One admin-tunable scalar; see [`ConfigKey`](#configkey-20-variants) |
+| `EscalatedAt(engagement_id, milestone_index)` | Persistent | Ledger of escalation, for the super-arbiter response deadline (#318) |
+| `SuperArbiterResolutionCount` | Instance | Disputes concluded through super-arbiter escalation (#317) |
+| `FeeWaived(engagement_id)` | Persistent | Platform fee waived for this engagement (#335) |
+| `MilestonePendingSince(engagement_id, milestone_index)` | Persistent | Ledger a placement milestone last re-entered `Pending`; absent means since creation (#465) |
+| `NoShowForfeited(engagement_id)` | Persistent | Shares forfeited by `trigger_no_show` and not yet refunded (#465) |
+| `StreamedPayout(engagement_id, milestone_index)` | Persistent | Vesting record for a streamed milestone payout (#466) |
+| `ArbiterPool` | Persistent | Admin-curated pool for random arbiter panels (#467) |
+| `ArbiterStats(arbiter)` | Persistent | Arbiter dispute-response history (#468) |
+| `Ext(ExtKey)` | — | Reserved nested key space; `ExtKey` is declared but not currently used |
+
+#### `ConfigKey` (20 variants)
+
+Each variant is stored as `DataKey::Config(ConfigKey::…)`.
+
+| Variant | Storage | Holds |
+|---|---|---|
+| `ProofCooldown` | Instance | Ledgers between proof resubmissions (default 2 880) |
+| `LedgersPerDay` | Instance | Ledgers-per-day constant (#41) |
+| `ConfirmWindow` | Instance | Confirm window in ledgers (default 86 400) |
+| `DisputeWindow` | Instance | Dispute window in ledgers (default 51 840) |
+| `MinEngagementAmount` | Persistent | Minimum engagement amount in raw token units (#17) |
+| `UpgradeLockDuration` | Instance | Upgrade time-lock in ledgers (default 17 280, #69) |
+| `MaxProofHashLength` | Instance | Max proof hash length in characters (default 200, #68) |
+| `ArbiterFee` | Instance | Arbiter fee in bps, max 200 (#52) |
+| `MaxActivePerCompany` | Instance | Max simultaneous active engagements per company (default 50) |
+| `MaxReplacements` | Instance | Max replacements per engagement (default 3, #31) |
+| `ReferralDiscountBps` | Persistent | Referral discount in bps (#251) |
+| `SuperArbiterResponseWindow` | Instance | Super-arbiter deadline before auto-resolving for the recruiter (#318) |
+| `TokenMinAmounts` | Persistent | `Map<Address, i128>` of per-token minimum amounts (#366) |
+| `NoShowDeadline` | Instance | Recruiter no-show deadline in ledgers; `0` disables it (#465) |
+| `SwapAdapter` | Instance | Trusted swap adapter for payout-token conversion (#458) |
+| `ProofCooldownDiscount` | Instance | Rating-based proof cooldown discount curve (#470) |
+| `BondForfeitBps` | Instance | Share of a recruiter bond forfeited on unresolved rejections (default 10 000, #459) |
+| `AmendmentTTL` | Instance | Amendment proposal TTL in ledgers (default 17 280) |
+| `FeeRebateBps` | Persistent | Share of each platform fee credited as a company rebate (#475) |
+| `EmergencyVoteWindow` | Persistent | Emergency pause vote window in ledgers (#474) |
+
+#### `DataKey2` (25 variants)
+
+All `DataKey2` entries are persistent.
+
+| Variant | Holds |
+|---|---|
+| `ArbiterSplitVotes(engagement_id, milestone_index)` | Split-vote tally for a dispute (#462) |
+| `SplitVotingEnabled(engagement_id)` | Whether split voting is on (#462) |
+| `SplitWithheld(engagement_id)` | Share withheld by split-vote resolutions, pending refund (#462) |
+| `ArbiterVoteDelegate(engagement_id, arbiter)` | Vote delegate for an arbiter slot (#463) |
+| `RecruiterPayoutToken(recruiter)` | Recruiter's preferred payout token (#458) |
+| `DisputeWindowProposal(engagement_id)` | Pending dispute-window override proposal (#469) |
+| `DisputeWindowOverride(engagement_id)` | Accepted dispute-window override in ledgers (#469) |
+| `EngagementRated(engagement_id)` | Set once the company has rated the recruiter (#470) |
+| `RecruiterRating(recruiter)` | Aggregated star ratings (#470) |
+| `RecruiterBond(engagement_id)` | Recruiter collateral bond (#459) |
+| `Bundle(bundle_id)` | Shared arbiter panel for a bundle (#464) |
+| `BundleEngagements(bundle_id)` | Engagement IDs in a bundle, in creation order (#464) |
+| `RecruiterVerified(recruiter)` | Admin-set verification badge; absent means `false` (#476) |
+| `SplitAmendmentProposal(engagement_id)` | Pending co-recruiter split amendment (#471) |
+| `SplitAmendmentLog(engagement_id)` | Accepted co-recruiter split amendments (#471) |
+| `RecusedArbiters(engagement_id, milestone_index)` | Arbiters who recused from a dispute (#477) |
+| `CompanyBalance(company, token)` | Pooled escrow balance (#472) |
+| `PoolFunded(engagement_id)` | Whether the engagement was funded from the pool (#472) |
+| `ConfigCosigner` | Second signer for sensitive admin setters (#473) |
+| `SensitiveFunctions` | Setter function IDs that need the config cosigner (#473) |
+| `PendingConfigChange(change_id)` | Pending cosigner-gated config change (#473) |
+| `NextConfigChangeId` | Counter for pending config change IDs (#473) |
+| `EmergencySigners` | Emergency M-of-N signer set and threshold (#474) |
+| `EmergencyVotes(engagement_id)` | Emergency pause vote tally; empty string means a global pause (#474) |
+| `CompanyRebate(company, token)` | Redeemable fee rebate balance (#475) |
 
 ---
 
@@ -794,6 +888,102 @@ changes. Integrators adding a cosigner do not need new entry points — they sim
 route the existing call through the cosigner's key.
 
 ## Public Function Reference
+
+### Which write function do I call?
+
+Use this to find the state-changing call for a task. It is the write-side
+counterpart of [Which query do I call?](#which-query-do-i-call). The caller
+column names the address that must sign. Wherever a company or recruiter
+signs, that party's registered cosigner may sign instead (see
+[Cosigners](#cosigners)). Engagement, dispute and payout calls fail with
+`ContractPaused` while the contract is paused. Most admin configuration
+setters, the cosigner setters and the payout-token setters still work while
+paused. Engagement-scoped calls also fail with `EngagementPaused` while that
+engagement is quarantined.
+
+#### Company
+
+| I want to… | Call |
+|---|---|
+| Open an engagement and fund escrow | `create_engagement` |
+| Open an engagement with arbiters drawn from the admin pool | `create_engagement_random_panel` |
+| Register an arbiter panel to share across several engagements | `create_engagement_bundle` |
+| Add funds to an engagement's escrow | `top_up_escrow` |
+| Pre-fund a pooled balance, or withdraw from it | `deposit_company_balance` / `withdraw_company_balance` |
+| Accept a milestone's proof and pay the recruiter | `confirm_milestone` |
+| Accept several milestones in one transaction | `batch_confirm_milestones` |
+| Dispute a milestone's proof | `raise_dispute` |
+| Ask the recruiter for a replacement candidate | `request_replacement` |
+| Approve a recruiter's proposed handover to a new address | `accept_recruiter_transfer` |
+| Hand the company role on an engagement to another address | `transfer_company` |
+| Rate the recruiter on a completed engagement | `rate_recruiter` |
+| Redeem accrued fee rebates | `redeem_company_rebate` |
+| Let a second key act for the company | `set_company_cosigner` |
+
+#### Recruiter
+
+| I want to… | Call |
+|---|---|
+| Submit proof that a milestone is done | `submit_proof` |
+| Withdraw the vested part of a streamed milestone payout | `claim_streamed_payout` |
+| Get paid in a different token | `set_recruiter_payout_token` / `clear_recruiter_payout_token` |
+| Hand the engagement to another recruiter address | `propose_recruiter_transfer` (then the company calls `accept_recruiter_transfer`) |
+| Let a second key act for the recruiter | `set_recruiter_cosigner` |
+
+#### Company or recruiter
+
+| I want to… | Call |
+|---|---|
+| Cancel the engagement and refund unreleased escrow | `cancel_engagement` (both must sign) |
+| Change the co-recruiter fee split | `propose_split_amendment`, then the other party calls `accept_split_amendment` or `reject_split_amendment` |
+| Change this engagement's dispute window | `propose_dispute_window_override`, then the other party calls `accept_dispute_window_override` or `reject_dispute_window_override` |
+| Force-confirm a milestone the company ignored past the confirm window | `force_confirm_milestone` |
+
+#### Arbiters
+
+| I want to… | Call | Caller |
+|---|---|---|
+| Vote on a disputed milestone | `cast_arbiter_vote` | Arbiter |
+| Vote a percentage split (when split voting is enabled) | `cast_arbiter_split_vote` | Arbiter |
+| Let another address vote for my slot | `set_arbiter_vote_delegate` | Arbiter |
+| Step aside from one dispute | `recuse_arbiter` | Arbiter |
+| Hand my seat to a successor | `nominate_arbiter_successor`, then the successor calls `claim_arbiter` | Arbiter, then nominee |
+| Decide an escalated dispute | `super_arbiter_resolve` | Super-arbiter |
+
+#### Anyone (permissionless)
+
+These calls take no signer. They only succeed once their on-chain condition
+holds, so a keeper or either party can run them.
+
+| I want to… | Call |
+|---|---|
+| Move a retention milestone from `Locked` to `Pending` after its unlock ledger | `unlock_milestone` |
+| Send a stalled dispute to the super-arbiter | `escalate_dispute` |
+| Settle an escalated dispute the super-arbiter did not decide in time | `resolve_escalation_timeout` |
+| Forfeit a placement milestone the recruiter never proved in time | `trigger_no_show` |
+| Close an inactive engagement and refund the company | `expire_engagement` |
+| Apply a time-locked contract upgrade | `execute_upgrade` |
+
+#### Admin
+
+| I want to… | Call |
+|---|---|
+| Initialise the contract | `init` |
+| Hand over the admin role | `nominate_admin`, then the nominee calls `claim_admin` |
+| Halt, or resume, every state-changing call | `pause` / `unpause` |
+| Freeze, or unfreeze, a single engagement | `pause_engagement` / `unpause_engagement` |
+| Set up the emergency M-of-N pause | `set_emergency_signers`, `set_emergency_vote_window`; signers then vote with `cast_emergency_pause_vote` |
+| Require a second signer on sensitive setters | `set_config_cosigner`, `set_sensitive_functions`; the cosigner approves each change with `accept_config_change` |
+| Set platform fees | `set_platform_fee`, `set_fee_tiers`, `remove_fee_tier`, `waive_platform_fee`, `set_fee_rebate_bps` |
+| Manage referrals | `add_referrer`, `remove_referrer`, `set_referral_discount_bps` |
+| Control which tokens and amounts are accepted | `add_allowed_token`, `remove_allowed_token`, `set_token_allowlist_enabled`, `set_min_amount`, `set_token_min_amount`, `remove_token_min_amount` |
+| Tune timing windows | `set_confirm_window`, `set_dispute_window`, `set_proof_cooldown`, `set_cooldown_rating_discount`, `set_no_show_deadline_ledgers`, `set_amendment_ttl`, `set_super_arbiter_deadline` |
+| Tune limits | `set_max_active_per_company`, `set_max_replacements` |
+| Configure arbitration | `set_super_arbiter`, `set_arbiter_fee`, `set_split_voting_enabled`, `add_arbiter_pool_member`, `remove_arbiter_pool_member`, `set_bond_forfeit_bps` |
+| Configure payout-token swaps | `set_swap_adapter` / `clear_swap_adapter` |
+| Mark a recruiter as verified | `set_recruiter_verified` |
+| Upgrade the contract | `set_upgrade_lock_duration`, `propose_upgrade`, then anyone calls `execute_upgrade` |
+| Label the deployed version | `set_version` |
 
 ### Admin & Configuration
 
