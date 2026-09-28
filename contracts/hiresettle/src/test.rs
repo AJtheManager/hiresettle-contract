@@ -9773,3 +9773,158 @@ fn test_create_engagement_empty_tag_rejected() {
     );
 }
 
+// ============================================================
+// Per-engagement pause (quarantine) + platform fee coverage
+// ============================================================
+
+#[test]
+fn test_pause_engagement_independent_of_global_pause() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let eng_id = String::from_str(&env, "ENG-Q1");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-Q1",
+    );
+
+    assert!(!client.is_engagement_paused(&eng_id));
+
+    client.pause_engagement(&company, &eng_id);
+    assert!(client.is_engagement_paused(&eng_id));
+    assert!(!client.is_paused());
+
+    client.unpause_engagement(&company, &eng_id);
+    assert!(!client.is_engagement_paused(&eng_id));
+
+    // Unknown IDs are reported as not paused.
+    assert!(!client.is_engagement_paused(&String::from_str(&env, "ENG-UNKNOWN")));
+}
+
+#[test]
+fn test_quarantined_engagement_blocks_only_that_engagement() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let paused_id = String::from_str(&env, "ENG-Q2A");
+    let live_id = String::from_str(&env, "ENG-Q2B");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-Q2A",
+    );
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-Q2B",
+    );
+
+    client.pause_engagement(&company, &paused_id);
+
+    let blocked = client.try_submit_proof(
+        &recruiter,
+        &paused_id,
+        &0,
+        &String::from_str(&env, "ipfs://blocked"),
+    );
+    assert!(blocked.is_err());
+
+    client.submit_proof(
+        &recruiter,
+        &live_id,
+        &0,
+        &String::from_str(&env, "ipfs://allowed"),
+    );
+    assert_eq!(
+        client.get_milestone(&live_id, &0).status,
+        MilestoneStatus::ProofSubmitted
+    );
+    assert_eq!(
+        client.get_milestone(&paused_id, &0).status,
+        MilestoneStatus::Pending
+    );
+}
+
+#[test]
+fn test_global_unpause_does_not_lift_engagement_quarantine() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+
+    let eng_id = String::from_str(&env, "ENG-Q3");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-Q3",
+    );
+
+    client.pause_engagement(&company, &eng_id);
+    client.pause(&company);
+    assert!(client.is_paused());
+
+    client.unpause(&company);
+    assert!(!client.is_paused());
+    assert!(client.is_engagement_paused(&eng_id));
+
+    let still_blocked = client.try_submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://still-blocked"),
+    );
+    assert!(still_blocked.is_err());
+
+    client.unpause_engagement(&company, &eng_id);
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://now-allowed"),
+    );
+    assert_eq!(
+        client.get_milestone(&eng_id, &0).status,
+        MilestoneStatus::ProofSubmitted
+    );
+}
+
+#[test]
+fn test_set_platform_fee_above_cap_rejected() {
+    let (env, contract_id, _token_id, company, _recruiter, _arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let treasury = Address::generate(&env);
+
+    // Default is (0, admin).
+    let (bps, fee_treasury) = client.get_platform_fee();
+    assert_eq!(bps, 0);
+    assert_eq!(fee_treasury, company);
+
+    assert!(client.try_set_platform_fee(&company, &501, &treasury).is_err());
+
+    // The cap itself is accepted.
+    client.set_platform_fee(&company, &500, &treasury);
+    let (bps, fee_treasury) = client.get_platform_fee();
+    assert_eq!(bps, 500);
+    assert_eq!(fee_treasury, treasury);
+}
+
+#[test]
+fn test_platform_fee_deducted_on_confirm_milestone() {
+    let (env, contract_id, token_id, company, recruiter, arbiter) = setup();
+    let client = HireSettleContractClient::new(&env, &contract_id);
+    let token_client = token::Client::new(&env, &token_id);
+    let treasury = Address::generate(&env);
+
+    client.set_platform_fee(&company, &200, &treasury);
+
+    let eng_id = String::from_str(&env, "ENG-FEE");
+    create_standard_engagement(
+        &env, &client, &token_id, &company, &recruiter, &arbiter, "ENG-FEE",
+    );
+
+    client.submit_proof(
+        &recruiter,
+        &eng_id,
+        &0,
+        &String::from_str(&env, "ipfs://offer-letter"),
+    );
+    client.confirm_milestone(&company, &eng_id, &0);
+
+    let gross = 1_000_000_000i128 * 30 / 100;
+    let fee = gross * 200 / 10_000;
+    assert_eq!(token_client.balance(&treasury), fee);
+    assert_eq!(token_client.balance(&recruiter), gross - fee);
+    assert!(has_event(&env, "platform_fee_collected"));
+}
+
