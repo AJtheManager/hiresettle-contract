@@ -1,3 +1,26 @@
+//! Unit tests for the HireSettle contract.
+//!
+//! Every test runs against a fresh `Env` built by `setup()`, which registers
+//! the contract and a Stellar asset token, mocks all auths, mints escrow
+//! funds to the company, and calls `init` with the company as admin. Tests
+//! are grouped under `// ====` section banners, mostly one per GitHub issue.
+//!
+//! 304 tests, 117 of them `#[should_panic]` cases asserting on an exact panic
+//! message (see the errors reference in `errors.rs`). Recount with
+//! `grep -c '^#\[test\]' src/test.rs` or `cargo test`.
+//!
+//! | Category | Tests | Covers |
+//! |---|---|---|
+//! | Core lifecycle | 47 | create, submit proof, confirm, batch and force confirm, cancel, top-up, release totals, unlock timing and events, proof resubmission cooldown |
+//! | Creation validation & limits | 52 | engagement ID format, job title, milestone count / name length / uniqueness, per-company active cap, role collisions, token allowlist, minimum amount, decimals-agnostic math |
+//! | Disputes & arbitration | 49 | dispute window and reason codes, multi-arbiter quorum, vote tallies, arbiter succession and stale nominations, random pool panels, response-time bias, self-recusal, disputes during replacement |
+//! | Replacement, transfer, expiry & no-show | 28 | replacement reason codes, recruiter transfer, `expire_engagement`, no-show penalty, rating attribution after transfer |
+//! | Fees & payouts | 25 | platform fee and fee event, fee tiers, co-recruiter split and its renegotiation, streamed milestone payouts |
+//! | Admin, pause & upgrade | 40 | global pause, per-engagement quarantine and the pause interaction matrix, two-step admin transfer, upgrade time-lock, version, fee waiver, per-token minimums, referrers |
+//! | Queries & metadata | 32 | engagement summaries, counts and per-company / per-recruiter listings, metadata hash, public-engagement index, tag limits, recruiter verification |
+//! | Pooled escrow, config cosigner, emergency multisig & rebates | 14 | issues #472–#475 |
+//! | Cross-cutting edge cases | 17 | the `ADDITIONAL COMPREHENSIVE TEST COVERAGE` section |
+
 #![cfg(test)]
 extern crate std;
 
